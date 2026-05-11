@@ -333,8 +333,8 @@ extra fields for multi-series layouts:
 
 | Prop         | Effect                                                                 |
 | ------------ | ---------------------------------------------------------------------- |
-| `position: "auto"`    | SwiftUI's default.                                            |
-| `position: "stacked"` | Applies `.positionAdjustment(.stacking)`.                     |
+| `position: "auto"`    | SwiftUI's default — multiple bars at the same X stack.        |
+| `position: "stacked"` | Same as `"auto"`. SwiftUI Charts already stacks by default — this label is an explicit alias for readability. |
 | `position: "grouped"` | Applies `.position(by: .value("Series", category))`.          |
 | `horizontal: true`    | Swaps X and Y on `BarMark` — labels on the Y axis.            |
 
