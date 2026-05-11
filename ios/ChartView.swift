@@ -37,7 +37,7 @@ internal final class ChartView: ExpoView {
   required init(appContext: AppContext? = nil) {
     if #available(iOS 17.0, *) {
       self.hostingController = UIHostingController(
-        rootView: ChartContent(props: props)
+        rootView: ChartHostView(props: props)
       )
     } else {
       // No-op host on iOS < 17. Keeps the view tree valid without
@@ -68,7 +68,7 @@ internal final class ChartView: ExpoView {
 // MARK: - SwiftUI implementation
 
 @available(iOS 17.0, *)
-private struct ChartContent: View {
+private struct ChartHostView: View {
   @ObservedObject var props: ChartViewProps
 
   // Native selection bindings. SwiftUI Charts snaps to nearest datum
@@ -88,8 +88,8 @@ private struct ChartContent: View {
     .chartLegend(legendVisibility)
     .chartXAxis(props.xAxis.hidden ? .hidden : .automatic)
     .chartYAxis(props.yAxis.hidden ? .hidden : .automatic)
-    .chartXScale(domain: scaleDomain(props.xAxis))
-    .chartYScale(domain: scaleDomain(props.yAxis))
+    .conditionalChartXScale(domain: scaleDomain(props.xAxis))
+    .conditionalChartYScale(domain: scaleDomain(props.yAxis))
     .chartBackground { proxy in
       centerLabelView(proxy: proxy)
     }
@@ -514,6 +514,32 @@ private struct ChartContent: View {
     case "cross": return AnyChartSymbolShape(BasicChartSymbolShape.cross)
     case "asterisk": return AnyChartSymbolShape(BasicChartSymbolShape.asterisk)
     default: return AnyChartSymbolShape(BasicChartSymbolShape.circle)
+    }
+  }
+}
+
+/// Conditional axis-scale modifiers. SwiftUI's `chartXScale(domain:)`
+/// and `chartYScale(domain:)` require a non-optional `ClosedRange`,
+/// so we can't just pass the optional result of `scaleDomain` —
+/// these helpers apply the modifier only when the domain is set,
+/// otherwise return the view unmodified.
+@available(iOS 17.0, *)
+private extension View {
+  @ViewBuilder
+  func conditionalChartXScale(domain: ClosedRange<Double>?) -> some View {
+    if let domain {
+      self.chartXScale(domain: domain)
+    } else {
+      self
+    }
+  }
+
+  @ViewBuilder
+  func conditionalChartYScale(domain: ClosedRange<Double>?) -> some View {
+    if let domain {
+      self.chartYScale(domain: domain)
+    } else {
+      self
     }
   }
 }
