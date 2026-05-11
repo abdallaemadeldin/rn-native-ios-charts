@@ -108,7 +108,7 @@ private struct ChartHostView: View {
     .customizedYAxis(config: props.yAxis)
     .conditionalChartXScale(domain: scaleDomain(props.xAxis))
     .conditionalChartYScale(domain: scaleDomain(props.yAxis))
-    .conditionalTightX(enabled: props.tightX)
+    .conditionalTightX(enabled: props.tightX, xDomain: tightXDomain)
     .conditionalCategoryColors(props.categoryColors)
     .conditionalScrollable(
       enabled: props.scrollableX,
@@ -650,6 +650,28 @@ private struct ChartHostView: View {
     props.marks.flatMap { m in m.data.map(\.y) }
   }
 
+  /// Ordered, unique X values across every cartesian mark. Used to
+  /// pin the X scale's domain when `tightX` is enabled so the first
+  /// and last categorical values map to the literal left and right
+  /// edges of the plot (no half-cell insets).
+  ///
+  /// We walk marks in insertion order and skip duplicates with a
+  /// Set, so the resulting array preserves the data's natural left-
+  /// to-right ordering even when multiple series share X values.
+  private var tightXDomain: [String] {
+    var seen = Set<String>()
+    var out: [String] = []
+    for mark in props.marks
+      where mark.type != "sector" && mark.type != "rule" {
+      for point in mark.data {
+        if seen.insert(point.x).inserted {
+          out.append(point.x)
+        }
+      }
+    }
+    return out
+  }
+
   private func interpolationMethod(_ v: String) -> InterpolationMethod {
     switch v {
     case "catmullRom": return .catmullRom
@@ -855,17 +877,51 @@ private extension View {
     }
   }
 
-  /// Trading-chart X mode: 0pt plot-dimension padding so the first
-  /// and last data points sit flush against the chart's edges. Use
-  /// when the axis is hidden and you want the line to bleed.
-  /// `plotDimension` takes separate `startPadding` / `endPadding` —
-  /// there's no single `padding:` form on this API.
+  /// Trading-chart X mode. Three coordinated tricks make the line /
+  /// area / bars reach both edges of the chart frame regardless of
+  /// data density:
+  ///
+  /// 1. **Explicit categorical domain** — SwiftUI positions
+  ///    categorical values at the CENTER of evenly-sized cells by
+  ///    default (leaves a half-cell gap on each end, brutal with
+  ///    few points). Passing the X strings as `domain:` pins the
+  ///    first value to pixel 0 and the last to pixel-max.
+  ///
+  /// 2. **`.plotDimension(startPadding: 0, endPadding: 0)`** —
+  ///    zeros out the scale's outer padding within the plot area.
+  ///
+  /// 3. **`chartPlotStyle { $0.frame(maxWidth: .infinity,
+  ///    maxHeight: .infinity) }`** — forces the plot area itself to
+  ///    fill the chart's full frame, in case SwiftUI's hidden axes
+  ///    still reserve any space.
+  ///
+  /// All three together give the Robinhood / Apple Stocks look
+  /// where the chart's content truly spans edge-to-edge.
   @ViewBuilder
-  func conditionalTightX(enabled: Bool) -> some View {
-    if enabled {
-      self.chartXScale(
-        range: .plotDimension(startPadding: 0, endPadding: 0)
-      )
+  func conditionalTightX(
+    enabled: Bool,
+    xDomain: [String]
+  ) -> some View {
+    if enabled && !xDomain.isEmpty {
+      self
+        .chartXScale(
+          domain: xDomain,
+          range: .plotDimension(startPadding: 0, endPadding: 0)
+        )
+        .chartPlotStyle { plot in
+          plot.frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    } else if enabled {
+      // No data yet — apply just the range + plot expansion so the
+      // chart doesn't crash; once data arrives a re-render will set
+      // the categorical domain.
+      self
+        .chartXScale(
+          range: .plotDimension(startPadding: 0, endPadding: 0)
+        )
+        .chartPlotStyle { plot in
+          plot.frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
     } else {
       self
     }
