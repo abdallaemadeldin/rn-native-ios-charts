@@ -858,10 +858,14 @@ private extension View {
   /// Trading-chart X mode: 0pt plot-dimension padding so the first
   /// and last data points sit flush against the chart's edges. Use
   /// when the axis is hidden and you want the line to bleed.
+  /// `plotDimension` takes separate `startPadding` / `endPadding` —
+  /// there's no single `padding:` form on this API.
   @ViewBuilder
   func conditionalTightX(enabled: Bool) -> some View {
     if enabled {
-      self.chartXScale(range: .plotDimension(padding: 0))
+      self.chartXScale(
+        range: .plotDimension(startPadding: 0, endPadding: 0)
+      )
     } else {
       self
     }
