@@ -156,6 +156,36 @@ export type CenterLabel = {
   labelFontSize?: number;
 };
 
+/**
+ * Interactive tooltip config. Drives SwiftUI Charts' native
+ * `chartXSelection` — the scrubber snaps to the nearest data point
+ * automatically and the callout is drawn inside the plot frame.
+ *
+ * For pie / sector marks, only the `onSelect` event fires (no
+ * built-in visual callout) — use the event to drive a `centerLabel`.
+ */
+export type TooltipConfig = {
+  enabled?: boolean;
+  /** Vertical dashed rule at the selected X. Default true. */
+  showRule?: boolean;
+  /** Filled dot at the selected point. Default true. */
+  showDot?: boolean;
+  /** Show the x label above the y value in the callout. Default true. */
+  showTitle?: boolean;
+  backgroundColor?: ColorValue;
+  textColor?: ColorValue;
+  borderColor?: ColorValue;
+  /** Decimal places for the y value. Default 0. */
+  valueDecimals?: number;
+  /** Prepended to the y value, e.g. "$". */
+  valuePrefix?: string;
+  /** Appended to the y value, e.g. "%". */
+  valueSuffix?: string;
+};
+
+/** Payload emitted by `onSelect`. `null` when the selection is cleared. */
+export type SelectedPoint = { x: string; y: number } | null;
+
 export type ChartProps = {
   /** One or more marks to render. Mix freely (e.g. area + line + points). */
   marks: Mark[];
@@ -168,6 +198,16 @@ export type ChartProps = {
    * works especially well with `sector` marks for donut center text.
    */
   centerLabel?: CenterLabel;
+  /**
+   * Interactive tooltip overlay. Defaults to disabled so charts stay
+   * static unless you opt in. Enable by passing `{ enabled: true }`.
+   */
+  tooltip?: TooltipConfig;
+  /**
+   * Fires when the user picks a point via the scrubber, or taps a
+   * pie sector. Receives `null` when selection clears.
+   */
+  onSelect?: (point: SelectedPoint) => void;
   animate?: boolean;
   style?: ViewStyle;
 };

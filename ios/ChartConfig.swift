@@ -41,3 +41,30 @@ internal struct ChartCenterLabel: Record {
 
   init() {}
 }
+
+/// Tooltip overlay shown when the user touches/drags on a cartesian
+/// chart. Uses SwiftUI Charts' native `chartXSelection`, so the
+/// scrubber snaps to data points automatically. For `sector` marks
+/// (pie / donut), `chartAngleSelection` fires the `onSelect` event
+/// but no visual callout is drawn — use the event to update a
+/// `centerLabel` or your own JS overlay.
+internal struct ChartTooltipConfig: Record {
+  @Field var enabled: Bool = false
+  /// Draw a vertical rule at the selected X.
+  @Field var showRule: Bool = true
+  /// Highlight the active point with a filled dot.
+  @Field var showDot: Bool = true
+  /// Show the x label above the y value in the callout.
+  @Field var showTitle: Bool = true
+  @Field var backgroundColor: UIColor?
+  @Field var textColor: UIColor?
+  @Field var borderColor: UIColor?
+  /// Decimal places for the y value when formatting. Default 0.
+  @Field var valueDecimals: Int = 0
+  /// Optional prefix (eg "$") prepended to the y value.
+  @Field var valuePrefix: String = ""
+  /// Optional suffix (eg "%") appended to the y value.
+  @Field var valueSuffix: String = ""
+
+  init() {}
+}

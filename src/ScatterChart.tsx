@@ -5,7 +5,9 @@ import type {
   AxisConfig,
   DataPoint,
   LegendConfig,
+  SelectedPoint,
   Symbol,
+  TooltipConfig,
 } from "./types";
 
 export type ScatterDatum = {
@@ -23,6 +25,8 @@ export type ScatterChartProps = {
   xAxis?: AxisConfig;
   yAxis?: AxisConfig;
   legend?: LegendConfig;
+  tooltip?: TooltipConfig;
+  onSelect?: (point: SelectedPoint) => void;
   animate?: boolean;
   style?: ViewStyle;
 };
@@ -35,6 +39,8 @@ export function ScatterChart({
   xAxis,
   yAxis,
   legend,
+  tooltip,
+  onSelect,
   animate,
   style,
 }: ScatterChartProps) {
@@ -51,6 +57,8 @@ export function ScatterChart({
       xAxis={xAxis}
       yAxis={yAxis}
       legend={legend}
+      tooltip={tooltip}
+      onSelect={onSelect}
       marks={[
         {
           type: "point",

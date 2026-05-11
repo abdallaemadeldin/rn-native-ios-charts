@@ -1,7 +1,13 @@
 import * as React from "react";
 import type { ColorValue, ViewStyle } from "react-native";
 import { Chart } from "./Chart";
-import type { AxisConfig, DataPoint, LegendConfig } from "./types";
+import type {
+  AxisConfig,
+  DataPoint,
+  LegendConfig,
+  SelectedPoint,
+  TooltipConfig,
+} from "./types";
 
 export type BarDatum = {
   x: string;
@@ -20,6 +26,8 @@ export type BarChartProps = {
   xAxis?: AxisConfig;
   yAxis?: AxisConfig;
   legend?: LegendConfig;
+  tooltip?: TooltipConfig;
+  onSelect?: (point: SelectedPoint) => void;
   animate?: boolean;
   style?: ViewStyle;
 };
@@ -32,6 +40,8 @@ export function BarChart({
   xAxis,
   yAxis,
   legend,
+  tooltip,
+  onSelect,
   animate,
   style,
 }: BarChartProps) {
@@ -48,6 +58,8 @@ export function BarChart({
       xAxis={xAxis}
       yAxis={yAxis}
       legend={legend}
+      tooltip={tooltip}
+      onSelect={onSelect}
       marks={[
         {
           type: "bar",

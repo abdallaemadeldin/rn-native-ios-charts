@@ -8,7 +8,13 @@ internal final class ChartViewProps: ObservableObject {
   @Published var yAxis: ChartAxisConfig = ChartAxisConfig()
   @Published var legend: ChartLegendConfig = ChartLegendConfig()
   @Published var centerLabel: ChartCenterLabel = ChartCenterLabel()
+  @Published var tooltip: ChartTooltipConfig = ChartTooltipConfig()
   @Published var animate: Bool = true
+
+  /// Closure invoked when the user selects a point via the scrubber
+  /// (or taps a pie sector). Wired to the Expo `onSelect` event.
+  /// `nil` payload = selection cleared.
+  var onSelect: (([String: Any]?) -> Void)?
 }
 
 /// One ExpoView that hosts a SwiftUI Chart, configurable to render
@@ -23,6 +29,9 @@ internal final class ChartViewProps: ObservableObject {
 /// the JS-side no-op on non-iOS platforms.
 internal final class ChartView: ExpoView {
   let props = ChartViewProps()
+  /// JS `onSelect` event — fired when the user picks a point via
+  /// the scrubber, taps a pie sector, or releases (clears selection).
+  let onSelect = EventDispatcher()
   private let hostingController: UIViewController
 
   required init(appContext: AppContext? = nil) {
@@ -36,6 +45,14 @@ internal final class ChartView: ExpoView {
       self.hostingController = UIHostingController(rootView: EmptyView())
     }
     super.init(appContext: appContext)
+
+    // Bridge the props' Swift closure to the JS event dispatcher.
+    // SwiftUI side calls `props.onSelect?(payload)`; we forward it.
+    props.onSelect = { [weak self] payload in
+      guard let self else { return }
+      self.onSelect(payload ?? [:])
+    }
+
     hostingController.view.backgroundColor = .clear
     addSubview(hostingController.view)
     hostingController.view.translatesAutoresizingMaskIntoConstraints = false
@@ -54,6 +71,14 @@ internal final class ChartView: ExpoView {
 private struct ChartContent: View {
   @ObservedObject var props: ChartViewProps
 
+  // Native selection bindings. SwiftUI Charts snaps to nearest datum
+  // for both, so we don't have to do hit-testing ourselves.
+  // - `selectedX` fires for cartesian marks (bar / line / area /
+  //   point / rectangle).
+  // - `selectedAngleY` fires for `sector` marks (pie / donut).
+  @State private var selectedX: String?
+  @State private var selectedAngleY: Double?
+
   var body: some View {
     Chart {
       ForEach(Array(props.marks.enumerated()), id: \.offset) { markIndex, mark in
@@ -68,10 +93,155 @@ private struct ChartContent: View {
     .chartBackground { proxy in
       centerLabelView(proxy: proxy)
     }
+    .chartXSelection(value: $selectedX)
+    .chartAngleSelection(value: $selectedAngleY)
+    .chartOverlay { proxy in
+      tooltipOverlay(proxy: proxy)
+    }
+    .onChange(of: selectedX) { _, _ in emitSelect() }
+    .onChange(of: selectedAngleY) { _, _ in emitSelect() }
     .animation(
       props.animate ? .easeInOut(duration: 0.4) : nil,
       value: marksFingerprint
     )
+  }
+
+  // MARK: - Tooltip overlay
+
+  @ViewBuilder
+  private func tooltipOverlay(proxy: ChartProxy) -> some View {
+    if props.tooltip.enabled, let x = selectedX, let active = findActivePoint(x: x) {
+      GeometryReader { geo in
+        if let plotFrame = proxy.plotFrame {
+          let plot = geo[plotFrame]
+          // Translate data → screen coords inside the plot frame.
+          if let xRel = proxy.position(forX: x) {
+            let xAbs = xRel + plot.minX
+            // Y coordinate of the active datum. `position(forY:)` is
+            // optional because numeric Y axes can be auto-scaled.
+            let yAbs: CGFloat? = proxy.position(forY: active.y).map {
+              $0 + plot.minY
+            }
+
+            ZStack(alignment: .topLeading) {
+              if props.tooltip.showRule {
+                Path { path in
+                  path.move(to: CGPoint(x: xAbs, y: plot.minY))
+                  path.addLine(to: CGPoint(x: xAbs, y: plot.maxY))
+                }
+                .stroke(
+                  Color(props.tooltip.borderColor ?? UIColor.tertiaryLabel),
+                  style: StrokeStyle(lineWidth: 1, dash: [3, 3])
+                )
+              }
+              if props.tooltip.showDot, let y = yAbs {
+                Circle()
+                  .fill(Color(activeColor(active) ?? UIColor.label))
+                  .frame(width: 10, height: 10)
+                  .overlay(
+                    Circle()
+                      .stroke(Color(props.tooltip.backgroundColor ?? UIColor.systemBackground), lineWidth: 2)
+                  )
+                  .position(x: xAbs, y: y)
+              }
+              calloutView(point: active)
+                .fixedSize()
+                .modifier(CalloutPlacement(
+                  xAbs: xAbs,
+                  yAbs: yAbs ?? (plot.minY + 16),
+                  plot: plot
+                ))
+            }
+          }
+        }
+      }
+    }
+  }
+
+  @ViewBuilder
+  private func calloutView(point: ChartDataPoint) -> some View {
+    let bg = Color(props.tooltip.backgroundColor ?? UIColor.systemBackground)
+    let fg = Color(props.tooltip.textColor ?? UIColor.label)
+    let border = Color(props.tooltip.borderColor ?? UIColor.separator)
+
+    VStack(alignment: .leading, spacing: 2) {
+      if props.tooltip.showTitle {
+        Text(point.x)
+          .font(.system(size: 11))
+          .foregroundColor(fg.opacity(0.6))
+      }
+      Text(formatValue(point.y))
+        .font(.system(size: 13, weight: .semibold))
+        .foregroundColor(fg)
+    }
+    .padding(.horizontal, 8)
+    .padding(.vertical, 6)
+    .background(
+      RoundedRectangle(cornerRadius: 8, style: .continuous)
+        .fill(bg)
+        .overlay(
+          RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .stroke(border, lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.12), radius: 8, x: 0, y: 2)
+    )
+  }
+
+  private func findActivePoint(x: String) -> ChartDataPoint? {
+    // Prefer non-rule, non-sector marks (those have meaningful Y at X).
+    for mark in props.marks where mark.type != "rule" && mark.type != "sector" {
+      if let hit = mark.data.first(where: { $0.x == x }) {
+        return hit
+      }
+    }
+    // Fallback: scan everything.
+    for mark in props.marks {
+      if let hit = mark.data.first(where: { $0.x == x }) {
+        return hit
+      }
+    }
+    return nil
+  }
+
+  private func activeColor(_ point: ChartDataPoint) -> UIColor? {
+    if let c = point.color { return c }
+    for mark in props.marks {
+      if mark.data.contains(where: { $0.x == point.x }), let mc = mark.color {
+        return mc
+      }
+    }
+    return nil
+  }
+
+  private func formatValue(_ y: Double) -> String {
+    let formatter = NumberFormatter()
+    formatter.numberStyle = .decimal
+    formatter.minimumFractionDigits = props.tooltip.valueDecimals
+    formatter.maximumFractionDigits = props.tooltip.valueDecimals
+    let num = formatter.string(from: NSNumber(value: y)) ?? String(y)
+    return "\(props.tooltip.valuePrefix)\(num)\(props.tooltip.valueSuffix)"
+  }
+
+  /// Dispatches the JS `onSelect` event with the currently-selected
+  /// point (or `nil` if cleared).
+  private func emitSelect() {
+    if let x = selectedX, let p = findActivePoint(x: x) {
+      props.onSelect?([
+        "x": p.x,
+        "y": p.y,
+      ])
+      return
+    }
+    if let ay = selectedAngleY,
+       let p = props.marks.first(where: { $0.type == "sector" })?
+         .data.first(where: { abs($0.y - ay) < 0.0001 }) {
+      props.onSelect?([
+        "x": p.x,
+        "y": p.y,
+      ])
+      return
+    }
+    props.onSelect?(nil)
   }
 
   // MARK: - Mark dispatch
@@ -345,6 +515,64 @@ private struct ChartContent: View {
     case "asterisk": return AnyChartSymbolShape(BasicChartSymbolShape.asterisk)
     default: return AnyChartSymbolShape(BasicChartSymbolShape.circle)
     }
+  }
+}
+
+/// Positions a callout above the active datum and clamps it inside
+/// the plot frame so it never overflows the chart's bounds. Uses
+/// `alignmentGuide` so the callout is anchored bottom-center on
+/// (xAbs, yAbs - 12) — i.e. 12pt above the dot.
+@available(iOS 17.0, *)
+private struct CalloutPlacement: ViewModifier {
+  let xAbs: CGFloat
+  let yAbs: CGFloat
+  let plot: CGRect
+
+  func body(content: Content) -> some View {
+    content
+      .background(
+        // Invisible probe to read the callout's own size so we can
+        // clamp it to the plot edges.
+        GeometryReader { geo in
+          Color.clear.preference(
+            key: CalloutSizeKey.self,
+            value: geo.size
+          )
+        }
+      )
+      .modifier(CalloutPositioner(xAbs: xAbs, yAbs: yAbs, plot: plot))
+  }
+}
+
+@available(iOS 17.0, *)
+private struct CalloutSizeKey: PreferenceKey {
+  static var defaultValue: CGSize = .zero
+  static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
+    value = nextValue()
+  }
+}
+
+@available(iOS 17.0, *)
+private struct CalloutPositioner: ViewModifier {
+  let xAbs: CGFloat
+  let yAbs: CGFloat
+  let plot: CGRect
+
+  @State private var size: CGSize = .zero
+
+  func body(content: Content) -> some View {
+    let half = size.width / 2
+    let clampedX = min(max(xAbs, plot.minX + half + 4), plot.maxX - half - 4)
+    // Prefer above the dot; if too close to the top, drop below.
+    let aboveY = yAbs - size.height / 2 - 14
+    let belowY = yAbs + size.height / 2 + 14
+    let y = aboveY < plot.minY + size.height / 2
+      ? belowY
+      : aboveY
+
+    return content
+      .onPreferenceChange(CalloutSizeKey.self) { size = $0 }
+      .position(x: clampedX, y: y)
   }
 }
 

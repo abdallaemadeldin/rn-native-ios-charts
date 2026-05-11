@@ -1,7 +1,12 @@
 import * as React from "react";
 import type { ColorValue, ViewStyle } from "react-native";
 import { Chart } from "./Chart";
-import type { CenterLabel, DataPoint, LegendConfig } from "./types";
+import type {
+  CenterLabel,
+  DataPoint,
+  LegendConfig,
+  SelectedPoint,
+} from "./types";
 
 export type PieSlice = {
   label: string;
@@ -21,6 +26,13 @@ export type PieChartProps = {
   /** Center label rendered inside the donut hole. */
   centerLabel?: CenterLabel;
   legend?: LegendConfig;
+  /**
+   * Fires when the user taps a slice. The payload `x` is the slice
+   * label and `y` is its value. `null` when the selection clears.
+   * No visual callout is drawn — wire `centerLabel` from this event
+   * to update the donut hole copy.
+   */
+  onSelect?: (point: SelectedPoint) => void;
   animate?: boolean;
   style?: ViewStyle;
 };
@@ -33,6 +45,7 @@ export function PieChart({
   cornerRadius = 2,
   centerLabel,
   legend,
+  onSelect,
   animate,
   style,
 }: PieChartProps) {
@@ -48,6 +61,7 @@ export function PieChart({
       animate={animate}
       legend={legend ?? { hidden: true }}
       centerLabel={centerLabel}
+      onSelect={onSelect}
       marks={[
         {
           type: "sector",

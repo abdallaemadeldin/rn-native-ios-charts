@@ -34,5 +34,7 @@ export type {
   LineCap,
   Mark,
   MarkType,
+  SelectedPoint,
   Symbol,
+  TooltipConfig,
 } from "./types";

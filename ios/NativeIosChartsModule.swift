@@ -9,6 +9,8 @@ public class NativeIosChartsModule: Module {
     Name("NativeIosCharts")
 
     View(ChartView.self) {
+      Events("onSelect")
+
       Prop("marks") { (view: ChartView, marks: [ChartMark]) in
         view.props.marks = marks
       }
@@ -23,6 +25,9 @@ public class NativeIosChartsModule: Module {
       }
       Prop("centerLabel") { (view: ChartView, label: ChartCenterLabel) in
         view.props.centerLabel = label
+      }
+      Prop("tooltip") { (view: ChartView, config: ChartTooltipConfig) in
+        view.props.tooltip = config
       }
       Prop("animate") { (view: ChartView, value: Bool) in
         view.props.animate = value

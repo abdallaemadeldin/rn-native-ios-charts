@@ -7,6 +7,8 @@ import type {
   Gradient,
   Interpolation,
   LegendConfig,
+  SelectedPoint,
+  TooltipConfig,
 } from "./types";
 
 export type AreaDatum = { x: string; y: number; category?: string };
@@ -19,6 +21,8 @@ export type AreaChartProps = {
   xAxis?: AxisConfig;
   yAxis?: AxisConfig;
   legend?: LegendConfig;
+  tooltip?: TooltipConfig;
+  onSelect?: (point: SelectedPoint) => void;
   animate?: boolean;
   style?: ViewStyle;
 };
@@ -31,6 +35,8 @@ export function AreaChart({
   xAxis,
   yAxis,
   legend,
+  tooltip,
+  onSelect,
   animate,
   style,
 }: AreaChartProps) {
@@ -46,6 +52,8 @@ export function AreaChart({
       xAxis={xAxis}
       yAxis={yAxis}
       legend={legend}
+      tooltip={tooltip}
+      onSelect={onSelect}
       marks={[
         {
           type: "area",

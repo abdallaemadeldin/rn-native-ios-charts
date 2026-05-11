@@ -7,7 +7,9 @@ import type {
   Gradient,
   Interpolation,
   LegendConfig,
+  SelectedPoint,
   Symbol,
+  TooltipConfig,
 } from "./types";
 
 export type LinePoint = { x: string; y: number; category?: string };
@@ -30,6 +32,8 @@ export type LineChartProps = {
   xAxis?: AxisConfig;
   yAxis?: AxisConfig;
   legend?: LegendConfig;
+  tooltip?: TooltipConfig;
+  onSelect?: (point: SelectedPoint) => void;
   animate?: boolean;
   style?: ViewStyle;
 };
@@ -47,6 +51,8 @@ export function LineChart({
   xAxis,
   yAxis,
   legend,
+  tooltip,
+  onSelect,
   animate,
   style,
 }: LineChartProps) {
@@ -90,6 +96,8 @@ export function LineChart({
       xAxis={xAxis}
       yAxis={yAxis}
       legend={legend}
+      tooltip={tooltip}
+      onSelect={onSelect}
       marks={marks}
     />
   );
