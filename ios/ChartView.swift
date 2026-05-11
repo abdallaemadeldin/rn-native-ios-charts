@@ -762,22 +762,32 @@ private extension View {
 /// Builds the Text view shown for a single axis tick. Routes through
 /// the active `valueFormat` and applies prefix/suffix. String values
 /// pass through unchanged; Double values get a NumberFormatter or a
-/// FormatStyle depending on the requested format.
+/// FormatStyle depending on the requested format. Returns a single
+/// `Text` (not `@ViewBuilder` content) so the caller can apply
+/// `.font` and `.foregroundColor` directly to it.
 @available(iOS 17.0, *)
-@ViewBuilder
 private func axisLabelText(
   for axisValue: AxisValue,
   config: ChartAxisConfig
 ) -> Text {
+  return Text(axisLabelString(for: axisValue, config: config))
+}
+
+@available(iOS 17.0, *)
+private func axisLabelString(
+  for axisValue: AxisValue,
+  config: ChartAxisConfig
+) -> String {
   if let v = axisValue.as(Double.self) {
-    Text(formatAxisValue(v, config: config))
-  } else if let v = axisValue.as(Int.self) {
-    Text(formatAxisValue(Double(v), config: config))
-  } else if let s = axisValue.as(String.self) {
-    Text("\(config.valuePrefix)\(s)\(config.valueSuffix)")
-  } else {
-    Text("")
+    return formatAxisValue(v, config: config)
   }
+  if let v = axisValue.as(Int.self) {
+    return formatAxisValue(Double(v), config: config)
+  }
+  if let s = axisValue.as(String.self) {
+    return "\(config.valuePrefix)\(s)\(config.valueSuffix)"
+  }
+  return ""
 }
 
 @available(iOS 17.0, *)
@@ -957,14 +967,17 @@ private struct CalloutPositioner: ViewModifier {
   }
 }
 
-/// Per-bar position adjustment. SwiftUI's default behavior with
-/// multiple BarMarks at the same X is implementation-defined; this
-/// extension makes the intent explicit:
-///   - "stacked" → `positionAdjustment(.stacking)`
-///   - "grouped" → `position(by: .value("Series", category))` so
-///     bars sit side-by-side, one column per series. Falls back to
-///     "auto" when no category is set.
-///   - anything else → leave the mark alone.
+/// Per-bar position adjustment. SwiftUI Charts already stacks
+/// multiple `BarMark`s that share an X value by default — that's
+/// the framework's built-in behavior, no modifier needed. To opt
+/// OUT of stacking and lay bars side-by-side, we add
+/// `.position(by: .value("Series", category))`.
+///
+/// So this helper:
+///   - "stacked" / "auto" / anything else → leave the mark alone
+///     (stacking is the default)
+///   - "grouped" → apply `position(by:)` using the point's
+///     `category`. Falls back to no-op if `category` is missing.
 @available(iOS 17.0, *)
 private extension ChartContent {
   @ChartContentBuilder
@@ -972,16 +985,9 @@ private extension ChartContent {
     kind: String,
     category: String?
   ) -> some ChartContent {
-    switch kind {
-    case "stacked":
-      self.positionAdjustment(.stacking)
-    case "grouped":
-      if let cat = category, !cat.isEmpty {
-        self.position(by: .value("Series", cat))
-      } else {
-        self
-      }
-    default:
+    if kind == "grouped", let cat = category, !cat.isEmpty {
+      self.position(by: .value("Series", cat))
+    } else {
       self
     }
   }

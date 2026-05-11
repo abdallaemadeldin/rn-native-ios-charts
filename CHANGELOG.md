@@ -59,10 +59,11 @@ their axes.
 - **Bar chart enhancements.** Two new fields on `bar` marks (and
   the matching `<BarChart>` props):
     - `position: "auto" | "stacked" | "grouped"` — multi-series
-      positioning. `"stacked"` applies SwiftUI's
-      `positionAdjustment(.stacking)`; `"grouped"` applies
-      `position(by: .value("Series", category))` so bars sit
-      side-by-side.
+      positioning. SwiftUI Charts already stacks `BarMark`s that
+      share an X value, so `"auto"` and `"stacked"` are equivalent
+      (both lean on the framework default). `"grouped"` adds
+      `position(by: .value("Series", category))` so the bars sit
+      side-by-side, one column per series.
     - `horizontal: boolean` — swaps the X and Y axes for `bar`
       marks. Use for Top-N lists and ranked leaderboards.
 
