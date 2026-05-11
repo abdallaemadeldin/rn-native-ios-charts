@@ -5,10 +5,10 @@
 > own `Charts` framework.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/abdallaemadeldin/rn-native-ios-charts/main/docs/demo.gif" alt="rn-native-ios-charts demo" width="360" />
+  <img src="https://raw.githubusercontent.com/abdallaemadeldin/rn-native-ios-charts/HEAD/docs/demo.gif" alt="rn-native-ios-charts demo" width="360" />
 </p>
 
-> [▶ Watch HD version](https://github.com/abdallaemadeldin/rn-native-ios-charts/raw/main/docs/demo.mp4) — every chart type, native gradients, interactive tooltips, and pie center-label snapping.
+> [▶ Watch HD version](https://github.com/abdallaemadeldin/rn-native-ios-charts/raw/HEAD/docs/demo.mp4) — every chart type, native gradients, interactive tooltips, and pie center-label snapping.
 
 Cross-platform RN chart libraries (Victory, Skia, gifted-charts, etc.) all
 hit the same iOS ceilings:
@@ -83,6 +83,12 @@ import { Chart } from "rn-native-ios-charts";
 | `<BarChart />`    | `bar` marks. Single series or multi-series via `category`.            |
 | `<ScatterChart />`| `point` marks with configurable symbol + size.                        |
 | `<RangeBarChart />`| `rectangle` marks between `yStart` and `yEnd` (candles, ranges, etc).|
+
+### Runtime helper
+
+| Export                | Returns                                                          |
+| --------------------- | ---------------------------------------------------------------- |
+| `isChartSupported()`  | `true` only on iOS 17+. Use to mount a fallback renderer on iOS 15–16 and on Android / web. See [Feature-detecting at runtime](#feature-detecting-at-runtime). |
 
 Example — pie with center label:
 
@@ -253,6 +259,13 @@ const [center, setCenter] = useState({ value: "$148K", label: "Total" });
   scrubber or taps a pie sector. Payload is `{ x, y }` or `null`.
 - `animate`: toggle SwiftUI's native ease-in-out on data changes.
 
+Top-level utility:
+
+- `isChartSupported()`: runtime feature-detection helper — `true` on
+  iOS 17+, `false` elsewhere. Pair with a fallback chart library on
+  older iOS or non-iOS platforms. See
+  [Feature-detecting at runtime](#feature-detecting-at-runtime).
+
 ## Platform support
 
 - **iOS 17+** — full rendering. SwiftUI Charts unified API,
@@ -263,9 +276,27 @@ const [center, setCenter] = useState({ value: "$148K", label: "Total" });
   empty `UIHostingController` on these versions. The SwiftUI Charts
   unified API isn't available pre-17, so there's nothing to draw.
 - **Other platforms** — the components render a transparent placeholder
-  `View` so consuming code doesn't need to feature-detect. Use
-  `Platform.OS === "ios"` to mount alternative renderers (e.g.
-  `react-native-gifted-charts`) on Android.
+  `View` so consuming code doesn't need to feature-detect.
+
+### Feature-detecting at runtime
+
+Use `isChartSupported()` to swap in an alternative renderer
+(`react-native-gifted-charts`, Victory, your own placeholder, etc.)
+on iOS < 17 and on Android / web:
+
+```tsx
+import { isChartSupported, LineChart } from "rn-native-ios-charts";
+import { LineChart as GiftedLine } from "react-native-gifted-charts";
+
+export function MyChart(props) {
+  return isChartSupported()
+    ? <LineChart {...props} />
+    : <GiftedLine {...mapToGiftedProps(props)} />;
+}
+```
+
+The check is a single integer parse of `Platform.Version` — cheap
+enough to call inline on every render.
 
 ## Installation
 

@@ -16,18 +16,25 @@
     "line",
     "area"
   ],
+  "author": "Abdalla Emadeldin",
   "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/abdallaemadeldin/rn-native-ios-charts.git"
   },
+  "bugs": {
+    "url": "https://github.com/abdallaemadeldin/rn-native-ios-charts/issues"
+  },
+  "homepage": "https://github.com/abdallaemadeldin/rn-native-ios-charts#readme",
   "files": [
     "src",
     "ios",
     "docs",
     "expo-module.config.json",
     "package.json",
-    "README.md"
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
   ],
   "peerDependencies": {
     "expo": "*",

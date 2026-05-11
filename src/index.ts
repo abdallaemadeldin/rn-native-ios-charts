@@ -1,3 +1,6 @@
+// ── Runtime feature detection ──
+export { isChartSupported } from "./support";
+
 // ── Generic chart (any combination of marks) ──
 export { Chart } from "./Chart";
 
