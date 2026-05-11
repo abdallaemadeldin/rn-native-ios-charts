@@ -43,6 +43,14 @@ internal struct ChartMark: Record {
   @Field var cornerRadius: Double = 0
   /// Bar width (pt). 0 = auto.
   @Field var barWidth: Double = 0
+  /// Bar positioning when multiple BarMarks share an X:
+  ///   - "auto"    (default) — SwiftUI's default behavior
+  ///   - "stacked" — explicit `.positionAdjustment(.stacking)`
+  ///   - "grouped" — side-by-side via `.position(by: category)`
+  @Field var position: String = "auto"
+  /// Horizontal bars — swap the X and Y axes for `bar` marks. Use
+  /// for Top-N lists, ranked leaderboards, etc.
+  @Field var horizontal: Bool = false
 
   // ─── Sector (pie / donut) ───
   /// Inner radius as a ratio of outer, 0–1. 0 = full pie, 0.62 = thin donut.

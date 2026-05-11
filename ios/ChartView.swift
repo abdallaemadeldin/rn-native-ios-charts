@@ -10,6 +10,24 @@ internal final class ChartViewProps: ObservableObject {
   @Published var centerLabel: ChartCenterLabel = ChartCenterLabel()
   @Published var tooltip: ChartTooltipConfig = ChartTooltipConfig()
   @Published var animate: Bool = true
+  /// Enable native horizontal scrolling via SwiftUI's
+  /// `chartScrollableAxes(.horizontal)`. Far better than wrapping the
+  /// chart in a RN `<ScrollView horizontal>` — keeps tooltip touch
+  /// coords correct and avoids gesture conflicts with the scrubber.
+  @Published var scrollableX: Bool = false
+  /// How many X categories are visible at once when scrolling. Only
+  /// applies when `scrollableX` is true. 0 = let SwiftUI decide.
+  @Published var visibleXCount: Int = 0
+  /// Trading-chart mode for the X axis: removes SwiftUI Charts'
+  /// default plot-dimension padding so the line / area reaches both
+  /// edges of the plot. The first and last data points sit flush
+  /// against the screen edges — like Robinhood, Apple Stocks, etc.
+  @Published var tightX: Bool = false
+  /// Maps a `point.category` string → fill color. Maps to SwiftUI's
+  /// `chartForegroundStyleScale(_:)`. Lets callers define a palette
+  /// once at the chart level instead of setting `color` on every
+  /// datum. Empty dictionary = SwiftUI's automatic palette.
+  @Published var categoryColors: [String: UIColor] = [:]
 
   /// Closure invoked when the user selects a point via the scrubber
   /// (or taps a pie sector). Wired to the Expo `onSelect` event.
@@ -86,10 +104,16 @@ private struct ChartHostView: View {
       }
     }
     .chartLegend(legendVisibility)
-    .chartXAxis(props.xAxis.hidden ? .hidden : .automatic)
-    .chartYAxis(props.yAxis.hidden ? .hidden : .automatic)
+    .customizedXAxis(config: props.xAxis)
+    .customizedYAxis(config: props.yAxis)
     .conditionalChartXScale(domain: scaleDomain(props.xAxis))
     .conditionalChartYScale(domain: scaleDomain(props.yAxis))
+    .conditionalTightX(enabled: props.tightX)
+    .conditionalCategoryColors(props.categoryColors)
+    .conditionalScrollable(
+      enabled: props.scrollableX,
+      visibleCount: props.visibleXCount
+    )
     .chartBackground { proxy in
       centerLabelView(proxy: proxy)
     }
@@ -119,7 +143,7 @@ private struct ChartHostView: View {
             let xAbs = xRel + plot.minX
             // Y coordinate of the active datum. `position(forY:)` is
             // optional because numeric Y axes can be auto-scaled.
-            let yAbs: CGFloat? = proxy.position(forY: active.y).map {
+            let yAbs: CGFloat? = proxy.position(forY: active.point.y).map {
               $0 + plot.minY
             }
 
@@ -136,7 +160,7 @@ private struct ChartHostView: View {
               }
               if props.tooltip.showDot, let y = yAbs {
                 Circle()
-                  .fill(Color(activeColor(active) ?? UIColor.label))
+                  .fill(Color(activeColor(active.point) ?? UIColor.label))
                   .frame(width: 10, height: 10)
                   .overlay(
                     Circle()
@@ -144,7 +168,7 @@ private struct ChartHostView: View {
                   )
                   .position(x: xAbs, y: y)
               }
-              calloutView(point: active)
+              calloutContent(activeX: x, fallback: active)
                 .fixedSize()
                 .modifier(CalloutPlacement(
                   xAbs: xAbs,
@@ -156,6 +180,80 @@ private struct ChartHostView: View {
         }
       }
     }
+  }
+
+  /// Picks single-row or multi-row callout based on `tooltip.multiSeries`.
+  @ViewBuilder
+  private func calloutContent(
+    activeX x: String,
+    fallback: ActiveHit
+  ) -> some View {
+    if props.tooltip.multiSeries {
+      let hits = findAllActivePoints(x: x)
+      if hits.count > 1 {
+        multiSeriesCalloutView(activeX: x, hits: hits)
+      } else {
+        calloutView(point: fallback.point)
+      }
+    } else {
+      calloutView(point: fallback.point)
+    }
+  }
+
+  /// Multi-row tooltip — one row per cartesian mark at the selected X.
+  /// Each row has a small color dot + the series name (or the mark's
+  /// category if available) + the formatted value.
+  @ViewBuilder
+  private func multiSeriesCalloutView(
+    activeX x: String,
+    hits: [ActiveHit]
+  ) -> some View {
+    let bg = Color(props.tooltip.backgroundColor ?? UIColor.systemBackground)
+    let fg = Color(props.tooltip.textColor ?? UIColor.label)
+    let border = Color(props.tooltip.borderColor ?? UIColor.separator)
+
+    VStack(alignment: .leading, spacing: 4) {
+      if props.tooltip.showTitle {
+        Text(x)
+          .font(.system(size: 11))
+          .foregroundColor(fg.opacity(0.6))
+          .padding(.bottom, 2)
+      }
+      ForEach(Array(hits.enumerated()), id: \.offset) { _, hit in
+        HStack(spacing: 6) {
+          Circle()
+            .fill(Color(activeColor(hit.point) ?? UIColor.label))
+            .frame(width: 7, height: 7)
+          Text(seriesLabel(for: hit))
+            .font(.system(size: 11))
+            .foregroundColor(fg.opacity(0.8))
+          Spacer(minLength: 8)
+          Text(formatValue(hit.point.y))
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundColor(fg)
+        }
+      }
+    }
+    .padding(.horizontal, 10)
+    .padding(.vertical, 8)
+    .background(
+      RoundedRectangle(cornerRadius: 8, style: .continuous)
+        .fill(bg)
+        .overlay(
+          RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .stroke(border, lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.12), radius: 8, x: 0, y: 2)
+    )
+  }
+
+  /// Per-row label in the multi-series callout. Prefers the point's
+  /// `category`, falls back to `Series N` where N is the mark index.
+  private func seriesLabel(for hit: ActiveHit) -> String {
+    if let cat = hit.point.category, !cat.isEmpty {
+      return cat
+    }
+    return "Series \(hit.markIndex + 1)"
   }
 
   @ViewBuilder
@@ -187,20 +285,51 @@ private struct ChartHostView: View {
     )
   }
 
-  private func findActivePoint(x: String) -> ChartDataPoint? {
+  /// Result of a single-series tooltip hit-test: the active datum
+  /// plus where it lives in the marks tree.
+  private struct ActiveHit {
+    let point: ChartDataPoint
+    let markIndex: Int
+    let pointIndex: Int
+  }
+
+  private func findActivePoint(x: String) -> ActiveHit? {
     // Prefer non-rule, non-sector marks (those have meaningful Y at X).
-    for mark in props.marks where mark.type != "rule" && mark.type != "sector" {
-      if let hit = mark.data.first(where: { $0.x == x }) {
-        return hit
+    for (mi, mark) in props.marks.enumerated()
+    where mark.type != "rule" && mark.type != "sector" {
+      if let pi = mark.data.firstIndex(where: { $0.x == x }) {
+        return ActiveHit(
+          point: mark.data[pi], markIndex: mi, pointIndex: pi
+        )
       }
     }
     // Fallback: scan everything.
-    for mark in props.marks {
-      if let hit = mark.data.first(where: { $0.x == x }) {
-        return hit
+    for (mi, mark) in props.marks.enumerated() {
+      if let pi = mark.data.firstIndex(where: { $0.x == x }) {
+        return ActiveHit(
+          point: mark.data[pi], markIndex: mi, pointIndex: pi
+        )
       }
     }
     return nil
+  }
+
+  /// All cartesian marks that have a datum at `x`. Used by the
+  /// multi-series tooltip to render one row per series. Sector and
+  /// rule marks are skipped (they don't have a meaningful Y at X).
+  private func findAllActivePoints(x: String) -> [ActiveHit] {
+    var hits: [ActiveHit] = []
+    for (mi, mark) in props.marks.enumerated()
+    where mark.type != "rule" && mark.type != "sector" {
+      if let pi = mark.data.firstIndex(where: { $0.x == x }) {
+        hits.append(
+          ActiveHit(
+            point: mark.data[pi], markIndex: mi, pointIndex: pi
+          )
+        )
+      }
+    }
+    return hits
   }
 
   private func activeColor(_ point: ChartDataPoint) -> UIColor? {
@@ -223,23 +352,38 @@ private struct ChartHostView: View {
   }
 
   /// Dispatches the JS `onSelect` event with the currently-selected
-  /// point (or `nil` if cleared).
+  /// point (or `nil` if cleared). Payload includes `markIndex` and
+  /// `pointIndex` so consumers can locate the datum deterministically
+  /// — value-only matching is fragile when multiple slices/points
+  /// share the same y value.
   private func emitSelect() {
-    if let x = selectedX, let p = findActivePoint(x: x) {
+    if let x = selectedX, let hit = findActivePoint(x: x) {
       props.onSelect?([
-        "x": p.x,
-        "y": p.y,
+        "x": hit.point.x,
+        "y": hit.point.y,
+        "markIndex": hit.markIndex,
+        "pointIndex": hit.pointIndex,
       ])
       return
     }
-    if let ay = selectedAngleY,
-       let p = props.marks.first(where: { $0.type == "sector" })?
-         .data.first(where: { abs($0.y - ay) < 0.0001 }) {
-      props.onSelect?([
-        "x": p.x,
-        "y": p.y,
-      ])
-      return
+    if let ay = selectedAngleY {
+      // Walk sector marks to find both the mark index and the slice
+      // index — needed so consumers can map back to their data array
+      // even when two slices have the same y value.
+      for (mi, mark) in props.marks.enumerated() where mark.type == "sector" {
+        if let pi = mark.data.firstIndex(where: {
+          abs($0.y - ay) < 0.0001
+        }) {
+          let p = mark.data[pi]
+          props.onSelect?([
+            "x": p.x,
+            "y": p.y,
+            "markIndex": mi,
+            "pointIndex": pi,
+          ])
+          return
+        }
+      }
     }
     props.onSelect?(nil)
   }
@@ -287,14 +431,35 @@ private struct ChartHostView: View {
 
   @ChartContentBuilder
   private func barMark(mark: ChartMark, point: ChartDataPoint) -> some ChartContent {
-    BarMark(
-      x: .value("X", point.x),
-      y: .value("Y", point.y),
-      width: mark.barWidth > 0 ? .fixed(mark.barWidth) : .automatic
-    )
-    .cornerRadius(mark.cornerRadius)
-    .foregroundStyle(resolveFill(mark: mark, point: point))
-    .opacity(mark.opacity)
+    // Build the base mark first — horizontal bars swap X and Y so
+    // long-tail labels read nicely on a vertical axis (Top-N pattern).
+    if mark.horizontal {
+      BarMark(
+        x: .value("X", point.y),
+        y: .value("Y", point.x),
+        height: mark.barWidth > 0 ? .fixed(mark.barWidth) : .automatic
+      )
+      .cornerRadius(mark.cornerRadius)
+      .foregroundStyle(resolveFill(mark: mark, point: point))
+      .opacity(mark.opacity)
+      .conditionalBarPosition(
+        kind: mark.position,
+        category: point.category
+      )
+    } else {
+      BarMark(
+        x: .value("X", point.x),
+        y: .value("Y", point.y),
+        width: mark.barWidth > 0 ? .fixed(mark.barWidth) : .automatic
+      )
+      .cornerRadius(mark.cornerRadius)
+      .foregroundStyle(resolveFill(mark: mark, point: point))
+      .opacity(mark.opacity)
+      .conditionalBarPosition(
+        kind: mark.position,
+        category: point.category
+      )
+    }
   }
 
   @ChartContentBuilder
@@ -518,6 +683,143 @@ private struct ChartHostView: View {
   }
 }
 
+/// Per-axis customization. SwiftUI's `chartXAxis(.hidden)` /
+/// `.automatic` only toggles visibility. To honor every field on
+/// `ChartAxisConfig` (label color & font size, grid line color,
+/// optional grid lines, optional tick labels, value formatters) we
+/// have to build custom `AxisMarks` content.
+@available(iOS 17.0, *)
+private extension View {
+  @ViewBuilder
+  func customizedXAxis(config: ChartAxisConfig) -> some View {
+    if config.hidden {
+      self.chartXAxis(.hidden)
+    } else {
+      self.chartXAxis {
+        AxisMarks(values: .automatic) { axisValue in
+          if config.gridLines {
+            AxisGridLine()
+              .foregroundStyle(
+                config.gridColor.map { Color($0) }
+                  ?? Color(UIColor.separator)
+              )
+          }
+          AxisTick()
+            .foregroundStyle(
+              config.gridColor.map { Color($0) }
+                ?? Color(UIColor.separator)
+            )
+          if config.tickLabels {
+            AxisValueLabel {
+              axisLabelText(for: axisValue, config: config)
+                .font(.system(size: CGFloat(config.labelFontSize)))
+                .foregroundColor(
+                  config.labelColor.map { Color($0) }
+                    ?? Color(UIColor.secondaryLabel)
+                )
+            }
+          }
+        }
+      }
+    }
+  }
+
+  @ViewBuilder
+  func customizedYAxis(config: ChartAxisConfig) -> some View {
+    if config.hidden {
+      self.chartYAxis(.hidden)
+    } else {
+      self.chartYAxis {
+        AxisMarks(values: .automatic) { axisValue in
+          if config.gridLines {
+            AxisGridLine()
+              .foregroundStyle(
+                config.gridColor.map { Color($0) }
+                  ?? Color(UIColor.separator)
+              )
+          }
+          AxisTick()
+            .foregroundStyle(
+              config.gridColor.map { Color($0) }
+                ?? Color(UIColor.separator)
+            )
+          if config.tickLabels {
+            AxisValueLabel {
+              axisLabelText(for: axisValue, config: config)
+                .font(.system(size: CGFloat(config.labelFontSize)))
+                .foregroundColor(
+                  config.labelColor.map { Color($0) }
+                    ?? Color(UIColor.secondaryLabel)
+                )
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+/// Builds the Text view shown for a single axis tick. Routes through
+/// the active `valueFormat` and applies prefix/suffix. String values
+/// pass through unchanged; Double values get a NumberFormatter or a
+/// FormatStyle depending on the requested format.
+@available(iOS 17.0, *)
+@ViewBuilder
+private func axisLabelText(
+  for axisValue: AxisValue,
+  config: ChartAxisConfig
+) -> Text {
+  if let v = axisValue.as(Double.self) {
+    Text(formatAxisValue(v, config: config))
+  } else if let v = axisValue.as(Int.self) {
+    Text(formatAxisValue(Double(v), config: config))
+  } else if let s = axisValue.as(String.self) {
+    Text("\(config.valuePrefix)\(s)\(config.valueSuffix)")
+  } else {
+    Text("")
+  }
+}
+
+@available(iOS 17.0, *)
+private func formatAxisValue(
+  _ v: Double,
+  config: ChartAxisConfig
+) -> String {
+  let core: String
+  switch config.valueFormat {
+  case "currency":
+    core = v.formatted(
+      .currency(code: config.currencyCode)
+        .precision(.fractionLength(config.valueDecimals))
+    )
+  case "percent":
+    // SwiftUI's `.percent` multiplies by 100. Callers should pass
+    // 0.5 to render as "50%". For caller-supplied percentages
+    // (already 0-100), use raw + suffix "%".
+    core = v.formatted(
+      .percent.precision(.fractionLength(config.valueDecimals))
+    )
+  case "abbreviated":
+    core = v.formatted(
+      .number.notation(.compactName)
+        .precision(.fractionLength(config.valueDecimals))
+    )
+  case "decimal":
+    core = v.formatted(
+      .number.precision(.fractionLength(config.valueDecimals))
+    )
+  default:
+    // "" / "raw" / anything else: plain number with the configured
+    // decimal places. Keeps the existing v0.1/0.2 behavior.
+    let formatter = NumberFormatter()
+    formatter.numberStyle = .decimal
+    formatter.minimumFractionDigits = config.valueDecimals
+    formatter.maximumFractionDigits = config.valueDecimals
+    core = formatter.string(from: NSNumber(value: v)) ?? String(v)
+  }
+  return "\(config.valuePrefix)\(core)\(config.valueSuffix)"
+}
+
 /// Conditional axis-scale modifiers. SwiftUI's `chartXScale(domain:)`
 /// and `chartYScale(domain:)` require a non-optional `ClosedRange`,
 /// so we can't just pass the optional result of `scaleDomain` —
@@ -540,6 +842,59 @@ private extension View {
       self.chartYScale(domain: domain)
     } else {
       self
+    }
+  }
+
+  /// Trading-chart X mode: 0pt plot-dimension padding so the first
+  /// and last data points sit flush against the chart's edges. Use
+  /// when the axis is hidden and you want the line to bleed.
+  @ViewBuilder
+  func conditionalTightX(enabled: Bool) -> some View {
+    if enabled {
+      self.chartXScale(range: .plotDimension(padding: 0))
+    } else {
+      self
+    }
+  }
+
+  /// Native horizontal scrolling. When `visibleCount > 0`, also caps
+  /// how many X categories are visible at once. Keeps tooltip coords
+  /// and chart selection gestures working — unlike wrapping in a
+  /// RN `<ScrollView horizontal>`.
+  @ViewBuilder
+  func conditionalScrollable(enabled: Bool, visibleCount: Int) -> some View {
+    if enabled {
+      if visibleCount > 0 {
+        self
+          .chartScrollableAxes(.horizontal)
+          .chartXVisibleDomain(length: visibleCount)
+      } else {
+        self.chartScrollableAxes(.horizontal)
+      }
+    } else {
+      self
+    }
+  }
+
+  /// Custom category → color mapping. Translates `[String: UIColor]`
+  /// into SwiftUI's `chartForegroundStyleScale` so consumers can
+  /// define their palette once at the chart level instead of setting
+  /// `color` on every datum.
+  @ViewBuilder
+  func conditionalCategoryColors(
+    _ mapping: [String: UIColor]
+  ) -> some View {
+    if mapping.isEmpty {
+      self
+    } else {
+      // Stable iteration order so SwiftUI's diffing doesn't churn.
+      let keys = mapping.keys.sorted()
+      self.chartForegroundStyleScale(
+        domain: keys,
+        range: keys.map { key in
+          Color(mapping[key] ?? UIColor.label)
+        }
+      )
     }
   }
 }
@@ -599,6 +954,36 @@ private struct CalloutPositioner: ViewModifier {
     return content
       .onPreferenceChange(CalloutSizeKey.self) { size = $0 }
       .position(x: clampedX, y: y)
+  }
+}
+
+/// Per-bar position adjustment. SwiftUI's default behavior with
+/// multiple BarMarks at the same X is implementation-defined; this
+/// extension makes the intent explicit:
+///   - "stacked" → `positionAdjustment(.stacking)`
+///   - "grouped" → `position(by: .value("Series", category))` so
+///     bars sit side-by-side, one column per series. Falls back to
+///     "auto" when no category is set.
+///   - anything else → leave the mark alone.
+@available(iOS 17.0, *)
+private extension ChartContent {
+  @ChartContentBuilder
+  func conditionalBarPosition(
+    kind: String,
+    category: String?
+  ) -> some ChartContent {
+    switch kind {
+    case "stacked":
+      self.positionAdjustment(.stacking)
+    case "grouped":
+      if let cat = category, !cat.isEmpty {
+        self.position(by: .value("Series", cat))
+      } else {
+        self
+      }
+    default:
+      self
+    }
   }
 }
 

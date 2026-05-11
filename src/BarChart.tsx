@@ -23,6 +23,19 @@ export type BarChartProps = {
   cornerRadius?: number;
   /** Fixed width per bar in pt. 0 = auto. */
   barWidth?: number;
+  /**
+   * Multi-series positioning. "stacked" stacks bars at the same X;
+   * "grouped" places them side-by-side via the per-point `category`
+   * field. Default "auto".
+   */
+  position?: "auto" | "stacked" | "grouped";
+  /** Render bars horizontally (swap X/Y). Default false. */
+  horizontal?: boolean;
+  /**
+   * Maps `category` → color, shorthand for `chartForegroundStyleScale`.
+   * When set, per-point `color` is unnecessary.
+   */
+  categoryColors?: Record<string, ColorValue>;
   xAxis?: AxisConfig;
   yAxis?: AxisConfig;
   legend?: LegendConfig;
@@ -37,6 +50,9 @@ export function BarChart({
   color,
   cornerRadius = 4,
   barWidth,
+  position,
+  horizontal,
+  categoryColors,
   xAxis,
   yAxis,
   legend,
@@ -60,6 +76,7 @@ export function BarChart({
       legend={legend}
       tooltip={tooltip}
       onSelect={onSelect}
+      categoryColors={categoryColors}
       marks={[
         {
           type: "bar",
@@ -67,6 +84,8 @@ export function BarChart({
           color,
           cornerRadius,
           barWidth,
+          position,
+          horizontal,
         },
       ]}
     />

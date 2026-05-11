@@ -9,7 +9,7 @@ export { PieChart } from "./PieChart";
 export type { PieChartProps, PieSlice } from "./PieChart";
 
 export { LineChart } from "./LineChart";
-export type { LineChartProps, LinePoint } from "./LineChart";
+export type { LineChartProps, LinePoint, LineSeries } from "./LineChart";
 
 export { AreaChart } from "./AreaChart";
 export type { AreaChartProps, AreaDatum } from "./AreaChart";

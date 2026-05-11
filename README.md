@@ -136,6 +136,227 @@ import { LineChart } from "rn-native-ios-charts";
 />
 ```
 
+## Trading-chart preset — `tightX` + hidden axes
+
+For the Robinhood / Apple Stocks aesthetic — line flush against
+both screen edges, no axes, no grid, deep gradient fill. The `tightX`
+prop zeros out SwiftUI Charts' default plot-dimension padding so the
+first and last points sit at the chart's left and right edges.
+
+```tsx
+import { LineChart } from "rn-native-ios-charts";
+
+<LineChart
+  style={{ width: "100%", height: 260 }}
+  data={dailyPrice}
+  color="#1FA92E"
+  lineWidth={3}
+  interpolation="catmullRom"
+  area={{ startOpacity: 0.55, endOpacity: 0 }}
+  tightX
+  xAxis={{ hidden: true }}
+  yAxis={{ hidden: true }}
+  tooltip={{ enabled: true, valuePrefix: "$" }}
+/>
+```
+
+## Multi-line charts — `<LineChart series={…} />`
+
+Render multiple lines on the same plot by passing a `series` array
+instead of a single `data` array. Each series has its own color and
+its own line config (width, dash, interpolation, points, symbol,
+area) — chart-level props act as fallbacks.
+
+```tsx
+import { LineChart } from "rn-native-ios-charts";
+
+<LineChart
+  // Chart-level defaults
+  lineWidth={2}
+  interpolation="catmullRom"
+  series={[
+    {
+      name: "Revenue",
+      color: "#1FA92E",
+      data: revenueByMonth,
+      area: { startOpacity: 0.4, endOpacity: 0 },  // shaded under this one
+    },
+    {
+      name: "Expenses",
+      color: "#F59E0B",
+      data: expensesByMonth,
+      lineWidth: 3,
+      dashArray: [6, 4],     // dashed
+    },
+    {
+      name: "Forecast",
+      color: "#3B82F6",
+      data: forecastByMonth,
+      interpolation: "linear",
+      showPoints: true,
+      symbol: "diamond",
+    },
+  ]}
+  tooltip={{ enabled: true, multiSeries: true, valuePrefix: "$" }}
+/>
+```
+
+Each series' `name` becomes:
+
+- the `category` key on every point (so SwiftUI groups them into one
+  continuous line),
+- the legend label, and
+- the row label in the multi-series tooltip (see below).
+
+The single-series `data` prop still works for one-line charts — pass
+either `data` **or** `series`, not both. If both, `series` wins.
+
+## Multi-series tooltip
+
+Pair multi-line charts with `tooltip.multiSeries` to get a stacked-row
+callout: one row per cartesian mark at the selected X, each with the
+series' color dot, name, and formatted value.
+
+```tsx
+<LineChart
+  series={[ /* multiple series as above */ ]}
+  tooltip={{
+    enabled: true,
+    multiSeries: true,         // <-- enables the stacked-row callout
+    valuePrefix: "$",
+    backgroundColor: "#161618",
+    textColor: "#FFFFFF",
+    borderColor: "#2A2A2D",
+  }}
+/>
+```
+
+When the chart has only one cartesian mark, `multiSeries` silently
+falls back to the regular single-row tooltip — safe to leave on.
+
+## Axis value formatters
+
+Format the tick labels on either axis without writing custom Swift.
+Supports four common formats plus optional prefix/suffix; works on
+numeric axes (in practice: the Y axis, since X is `String`).
+
+```tsx
+<LineChart
+  data={annualRevenue}
+  yAxis={{ valueFormat: "currency", currencyCode: "USD" }}
+/>
+
+<LineChart
+  data={percentReturns}
+  yAxis={{ valueFormat: "percent" }}    // 0.5 → "50%"
+/>
+
+<LineChart
+  data={networthOverTime}
+  yAxis={{ valueFormat: "abbreviated" }} // 1K, 1.2M, 3.4B
+/>
+
+<LineChart
+  data={returns}
+  yAxis={{ valuePrefix: "$", valueDecimals: 0 }}  // symbol-only "$50,000"
+/>
+```
+
+| `valueFormat` | Output (en-US)            | Notes                                  |
+| ------------- | ------------------------- | -------------------------------------- |
+| `"raw"` (default) | `50000`               | Plain number with `valueDecimals`.     |
+| `"currency"`  | `$50,000.00`              | Locale-aware. Uses `currencyCode`.     |
+| `"percent"`   | `50%`                     | SwiftUI multiplies by 100 — pass `0.5` to render `"50%"`. For pre-scaled (0–100) values, use `valueSuffix: "%"` instead. |
+| `"abbreviated"` | `50K`, `1.2M`, `3.4B`   | Compact notation.                      |
+| `"decimal"`   | `50,000.00`               | Plain decimal with thousands separators. |
+
+`valuePrefix` / `valueSuffix` are applied after the format style, so
+`valueFormat: "decimal" + valuePrefix: "$"` gives you symbol-only
+currency without locale code lookups.
+
+## Category color palettes — `categoryColors`
+
+When your data has `category` values, set a chart-level palette
+instead of repeating `color` on every datum. Translates to SwiftUI's
+`chartForegroundStyleScale`.
+
+```tsx
+<LineChart
+  series={[
+    { name: "Cash", data: cashData },
+    { name: "Stocks", data: stocksData },
+    { name: "Bonds", data: bondsData },
+  ]}
+  categoryColors={{
+    Cash:   "#1FA92E",
+    Stocks: "#3B82F6",
+    Bonds:  "#F59E0B",
+  }}
+/>
+```
+
+Per-series `color` (or per-point `color`) always overrides
+`categoryColors` when both are set.
+
+## Bar charts — stacking & horizontal
+
+`<BarChart>` (and `bar` marks on the generic `<Chart>`) accept two
+extra fields for multi-series layouts:
+
+```tsx
+// Stacked bars
+<BarChart
+  data={[
+    { x: "Q1", y: 24, category: "Revenue" },
+    { x: "Q1", y: 18, category: "Expenses" },
+    { x: "Q2", y: 31, category: "Revenue" },
+    { x: "Q2", y: 22, category: "Expenses" },
+  ]}
+  position="stacked"
+  categoryColors={{ Revenue: "#1FA92E", Expenses: "#F59E0B" }}
+/>
+
+// Grouped (side-by-side)
+<BarChart
+  data={/* same data */}
+  position="grouped"
+  categoryColors={{ Revenue: "#1FA92E", Expenses: "#F59E0B" }}
+/>
+
+// Horizontal bars — Top-N / ranked leaderboards
+<BarChart
+  data={topAssetsByValue}      // [{ x: "AAPL", y: 38000 }, ...]
+  horizontal
+  cornerRadius={4}
+/>
+```
+
+| Prop         | Effect                                                                 |
+| ------------ | ---------------------------------------------------------------------- |
+| `position: "auto"`    | SwiftUI's default.                                            |
+| `position: "stacked"` | Applies `.positionAdjustment(.stacking)`.                     |
+| `position: "grouped"` | Applies `.position(by: .value("Series", category))`.          |
+| `horizontal: true`    | Swaps X and Y on `BarMark` — labels on the Y axis.            |
+
+## Horizontal scrolling for long time series
+
+When you have more data points than fit on screen, use SwiftUI's
+native `chartScrollableAxes(.horizontal)` instead of wrapping the
+chart in an RN `<ScrollView horizontal>` — that wrapper would steal
+the scrubber's pan gesture and shift the tooltip's touch coordinates.
+
+```tsx
+<LineChart
+  data={twoYearsOfDailyData}      // ~730 points
+  scrollableX                     // enables native horizontal scroll
+  visibleXCount={30}              // show ~30 days per "page"
+  tooltip={{ enabled: true }}     // scrubber + tooltip still work
+/>
+```
+
+`visibleXCount` is optional — omit it (or pass 0) to let SwiftUI
+auto-decide.
+
 ## Interactivity — native tooltips & selection
 
 All cartesian charts (line, area, bar, point, rectangle) support
@@ -189,8 +410,23 @@ the leftmost / rightmost / topmost data points.
 Fires every time the selection changes (including when it clears):
 
 ```ts
-onSelect?: (point: { x: string; y: number } | null) => void;
+type SelectedPoint = {
+  x: string;
+  y: number;
+  /** Index of the mark this point belongs to (0-based). */
+  markIndex: number;
+  /** Index of the point within that mark's data (0-based). */
+  pointIndex: number;
+} | null;
+
+onSelect?: (point: SelectedPoint) => void;
 ```
+
+The `markIndex` + `pointIndex` pair locates the datum in the caller's
+`marks` array deterministically — value-only matching is fragile
+when two slices or points share the same y. Pies emit the slice
+index on tap; cartesian charts emit the first cartesian mark's
+index for the selected X.
 
 For pie / donut charts there's no visual callout — `onSelect` fires
 on slice taps via `chartAngleSelection`, and the natural place to
@@ -257,7 +493,24 @@ const [center, setCenter] = useState({ value: "$148K", label: "Total" });
   [Interactivity](#interactivity--native-tooltips--selection) above.
 - `onSelect(point)`: event fired when the user picks a point via the
   scrubber or taps a pie sector. Payload is `{ x, y }` or `null`.
+- `tightX`: zero out plot-dimension X padding so the line / area
+  bleeds to both edges. See [Trading-chart preset](#trading-chart-preset--tightx--hidden-axes).
+- `scrollableX` + `visibleXCount`: enable SwiftUI's native horizontal
+  scrolling. See [Horizontal scrolling](#horizontal-scrolling-for-long-time-series).
+- `categoryColors`: map `category` strings → colors. See
+  [Category color palettes](#category-color-palettes--categorycolors).
 - `animate`: toggle SwiftUI's native ease-in-out on data changes.
+
+`xAxis` / `yAxis` honor every field — `labelColor`, `labelFontSize`,
+`gridColor`, `gridLines`, `tickLabels`, plus optional `[domainMin,
+domainMax]` and `valueFormat` / `currencyCode` / `valueDecimals` /
+`valuePrefix` / `valueSuffix` for tick label formatting. See
+[Axis value formatters](#axis-value-formatters). (Fully wired from
+v0.2.0 onward — v0.1.0 silently ignored everything except `hidden`.)
+
+Bar marks additionally accept `position: "auto" | "stacked" |
+"grouped"` and `horizontal: boolean` — see
+[Bar charts — stacking & horizontal](#bar-charts--stacking--horizontal).
 
 Top-level utility:
 

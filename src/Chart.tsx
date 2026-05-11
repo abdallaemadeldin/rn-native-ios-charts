@@ -17,10 +17,15 @@ import type { ChartProps, SelectedPoint } from "./types";
 // Expo Modules events deliver the payload wrapped in `nativeEvent`.
 // We re-shape it into the public `SelectedPoint` type at the boundary
 // so consumers don't have to deal with the bridge layout.
+type NativeSelectPayload = {
+  x?: string;
+  y?: number;
+  markIndex?: number;
+  pointIndex?: number;
+};
+
 type NativeChartProps = Omit<ChartProps, "onSelect"> & {
-  onSelect?: (event: {
-    nativeEvent: { x?: string; y?: number };
-  }) => void;
+  onSelect?: (event: { nativeEvent: NativeSelectPayload }) => void;
 };
 
 const NativeChart =
@@ -38,10 +43,17 @@ export function Chart(props: ChartProps) {
   // Wrap the user's callback to unwrap the native event shape. Empty
   // payloads (`{}`) signal a cleared selection — emit `null` for them.
   const handleSelect = onSelect
-    ? (event: { nativeEvent: { x?: string; y?: number } }) => {
-        const { x, y } = event.nativeEvent ?? {};
+    ? (event: { nativeEvent: NativeSelectPayload }) => {
+        const { x, y, markIndex, pointIndex } = event.nativeEvent ?? {};
         const point: SelectedPoint =
-          typeof x === "string" && typeof y === "number" ? { x, y } : null;
+          typeof x === "string" && typeof y === "number"
+            ? {
+                x,
+                y,
+                markIndex: typeof markIndex === "number" ? markIndex : 0,
+                pointIndex: typeof pointIndex === "number" ? pointIndex : 0,
+              }
+            : null;
         onSelect(point);
       }
     : undefined;

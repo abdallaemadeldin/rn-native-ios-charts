@@ -107,6 +107,19 @@ export type Mark = {
   cornerRadius?: number;
   /** Fixed bar width in pt. 0 = auto. */
   barWidth?: number;
+  /**
+   * Bar positioning when multiple bar marks share an X category:
+   *   - "auto"    — SwiftUI's default
+   *   - "stacked" — explicit stacking
+   *   - "grouped" — side-by-side via `position(by: category)`
+   * Only meaningful for `bar` marks.
+   */
+  position?: "auto" | "stacked" | "grouped";
+  /**
+   * Horizontal bars — swaps the X and Y axes for `bar` marks. Use
+   * for Top-N lists / ranked leaderboards.
+   */
+  horizontal?: boolean;
 
   // ─── Sector (pie / donut) ───
   /** Donut hole ratio, 0–1. 0 = full pie, 0.62 = thin donut. */
@@ -134,6 +147,27 @@ export type AxisConfig = {
   /** Numeric domain. Both must be set to take effect. */
   domainMin?: number;
   domainMax?: number;
+
+  /* ────── Value formatters ────── */
+
+  /**
+   * Format style for axis tick labels (numeric axes only — strings
+   * pass through unchanged):
+   *   - "raw" (default) — `value.toLocaleString()` with `valueDecimals`
+   *   - "currency"      — locale-aware, uses `currencyCode`
+   *   - "percent"       — SwiftUI multiplies by 100 (pass 0.5 → "50%")
+   *   - "abbreviated"   — "1K", "1.2M", "3.4B"
+   *   - "decimal"       — plain number, `valueDecimals` fraction digits
+   */
+  valueFormat?: "raw" | "currency" | "percent" | "abbreviated" | "decimal";
+  /** Used when `valueFormat: "currency"`. Default "USD". */
+  currencyCode?: string;
+  /** Fraction digits for formatters that respect it. Default 0. */
+  valueDecimals?: number;
+  /** Prepended to the formatted value, e.g. "$" or "≈ ". */
+  valuePrefix?: string;
+  /** Appended to the formatted value, e.g. "%" or " yrs". */
+  valueSuffix?: string;
 };
 
 export type LegendConfig = {
@@ -172,6 +206,13 @@ export type TooltipConfig = {
   showDot?: boolean;
   /** Show the x label above the y value in the callout. Default true. */
   showTitle?: boolean;
+  /**
+   * Render one row per cartesian mark at the selected X (color dot +
+   * series name + value). When the chart has only one mark, behaves
+   * the same as the single-series tooltip. Default false. Useful for
+   * OHLC stock charts and series comparisons.
+   */
+  multiSeries?: boolean;
   backgroundColor?: ColorValue;
   textColor?: ColorValue;
   borderColor?: ColorValue;
@@ -183,8 +224,15 @@ export type TooltipConfig = {
   valueSuffix?: string;
 };
 
-/** Payload emitted by `onSelect`. `null` when the selection is cleared. */
-export type SelectedPoint = { x: string; y: number } | null;
+/**
+ * Payload emitted by `onSelect`. `null` when the selection is cleared.
+ * `markIndex` and `pointIndex` locate the datum in the caller's
+ * `marks` array deterministically — value-only matching is fragile
+ * when multiple slices/points share the same y value.
+ */
+export type SelectedPoint =
+  | { x: string; y: number; markIndex: number; pointIndex: number }
+  | null;
 
 export type ChartProps = {
   /** One or more marks to render. Mix freely (e.g. area + line + points). */
@@ -208,6 +256,33 @@ export type ChartProps = {
    * pie sector. Receives `null` when selection clears.
    */
   onSelect?: (point: SelectedPoint) => void;
+  /**
+   * Enable native horizontal scrolling via SwiftUI's
+   * `chartScrollableAxes(.horizontal)`. Better than wrapping the
+   * chart in an RN `<ScrollView horizontal>` — keeps tooltip
+   * coordinates correct and avoids scrubber gesture conflicts.
+   */
+  scrollableX?: boolean;
+  /**
+   * When `scrollableX` is true, caps how many X categories are
+   * visible at once. Omit (or pass 0) to let SwiftUI auto-decide.
+   * Maps to `chartXVisibleDomain(length:)`.
+   */
+  visibleXCount?: number;
+  /**
+   * Trading-chart X mode — removes SwiftUI Charts' default plot-
+   * dimension padding so the first and last data points sit flush
+   * against the chart's left and right edges. Pair with hidden
+   * axes for the Robinhood / Apple Stocks look.
+   */
+  tightX?: boolean;
+  /**
+   * Maps a `point.category` string → fill color. Translates to
+   * SwiftUI's `chartForegroundStyleScale`. Define your palette once
+   * at the chart level instead of repeating `color` on every datum.
+   * Empty (or omitted) falls back to SwiftUI's auto palette.
+   */
+  categoryColors?: Record<string, ColorValue>;
   animate?: boolean;
   style?: ViewStyle;
 };

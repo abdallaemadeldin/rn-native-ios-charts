@@ -29,6 +29,18 @@ public class NativeIosChartsModule: Module {
       Prop("tooltip") { (view: ChartView, config: ChartTooltipConfig) in
         view.props.tooltip = config
       }
+      Prop("scrollableX") { (view: ChartView, value: Bool) in
+        view.props.scrollableX = value
+      }
+      Prop("visibleXCount") { (view: ChartView, value: Int) in
+        view.props.visibleXCount = value
+      }
+      Prop("tightX") { (view: ChartView, value: Bool) in
+        view.props.tightX = value
+      }
+      Prop("categoryColors") { (view: ChartView, value: [String: UIColor]) in
+        view.props.categoryColors = value
+      }
       Prop("animate") { (view: ChartView, value: Bool) in
         view.props.animate = value
       }
