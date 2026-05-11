@@ -4,6 +4,12 @@
 > Skia, no canvas approximations — every line and slice is drawn by Apple's
 > own `Charts` framework.
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/abdallaemadeldin/rn-native-ios-charts/main/docs/demo.gif" alt="rn-native-ios-charts demo" width="360" />
+</p>
+
+> [▶ Watch HD version](https://github.com/abdallaemadeldin/rn-native-ios-charts/raw/main/docs/demo.mp4) — every chart type, native gradients, interactive tooltips, and pie center-label snapping.
+
 Cross-platform RN chart libraries (Victory, Skia, gifted-charts, etc.) all
 hit the same iOS ceilings:
 
