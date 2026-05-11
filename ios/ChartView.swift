@@ -15,13 +15,26 @@ internal final class ChartViewProps: ObservableObject {
 /// any combination of bar / line / area / point / rectangle / rule /
 /// sector marks. Designed to be the single native primitive every
 /// chart type ships through.
+///
+/// SwiftUI Charts' unified API (`Chart {}`, `SectorMark`,
+/// `chartBackground`) is iOS 17+. The host view installs cleanly on
+/// iOS 15.1+ so this pod can be added to any modern Expo project,
+/// but on iOS 16 and earlier the chart renders nothing — matching
+/// the JS-side no-op on non-iOS platforms.
 internal final class ChartView: ExpoView {
   let props = ChartViewProps()
-  private let hostingController: UIHostingController<ChartContent>
+  private let hostingController: UIViewController
 
   required init(appContext: AppContext? = nil) {
-    let view = ChartContent(props: props)
-    self.hostingController = UIHostingController(rootView: view)
+    if #available(iOS 17.0, *) {
+      self.hostingController = UIHostingController(
+        rootView: ChartContent(props: props)
+      )
+    } else {
+      // No-op host on iOS < 17. Keeps the view tree valid without
+      // pulling in any iOS-17-only SwiftUI types.
+      self.hostingController = UIHostingController(rootView: EmptyView())
+    }
     super.init(appContext: appContext)
     hostingController.view.backgroundColor = .clear
     addSubview(hostingController.view)
@@ -37,6 +50,7 @@ internal final class ChartView: ExpoView {
 
 // MARK: - SwiftUI implementation
 
+@available(iOS 17.0, *)
 private struct ChartContent: View {
   @ObservedObject var props: ChartViewProps
 
@@ -336,6 +350,7 @@ private struct ChartContent: View {
 
 /// Type-erased wrapper for the various BasicChartSymbolShape values
 /// so a `switch` can return a single concrete type.
+@available(iOS 17.0, *)
 private struct AnyChartSymbolShape: ChartSymbolShape {
   private let _path: (CGRect) -> Path
   let perceptualUnitRect: CGRect

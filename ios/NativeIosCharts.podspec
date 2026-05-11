@@ -14,9 +14,12 @@ Pod::Spec.new do |s|
   s.license        = package['license']
   s.author         = ''
   s.homepage       = clean_url
-  # SwiftUI Charts requires iOS 16+. We target 17 to use modern
-  # `.foregroundStyle` with gradients and the unified Chart API.
-  s.platforms      = { :ios => '17.0', :tvos => '17.0' }
+  # Podspec minimum is set low so the pod installs cleanly in any
+  # iOS-15+ Expo project. The actual SwiftUI Charts code is gated
+  # with `@available(iOS 17.0, *)` — on older iOS the native view
+  # renders a transparent placeholder, matching the JS-side no-op on
+  # non-iOS platforms.
+  s.platforms      = { :ios => '15.1', :tvos => '15.1' }
   s.swift_version  = '5.9'
   s.source         = { git: "#{clean_url}.git", tag: s.version.to_s }
   s.static_framework = true
