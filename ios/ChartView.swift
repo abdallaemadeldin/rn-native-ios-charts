@@ -210,29 +210,45 @@ private struct ChartHostView: View {
         }
       }
       .onChange(of: selectedX) { _, _ in emitSelect() }
-      .onChange(of: selectedAngleY) { _, newValue in
-        // SwiftUI Charts' `chartAngleSelection` doesn't keep the
-        // binding set after the user lifts off — it auto-resets to
-        // nil when the tap ends. If we treated that nil-reset as a
-        // real selection change we'd immediately clear
-        // `selectedSlice` and the tooltip would flash on tap-down
-        // and disappear on tap-up. Ignore nil resets here;
-        // intentional clears (toggle re-tap, `clearSelectionState`,
-        // the `clearSelectionToken` prop) write `selectedSlice = nil`
-        // directly.
+      .onChange(of: selectedAngleY) { oldValue, newValue in
+        // SwiftUI Charts' `chartAngleSelection` is a drag-tracking
+        // gesture: every finger movement (even a few pixels) updates
+        // the binding with a slightly different cumulative-angle
+        // value, firing `onChange` repeatedly. We discriminate by
+        // transition shape:
+        //
+        //   * newValue == nil — framework auto-reset on lift.
+        //     Ignored so the selection persists until the user
+        //     explicitly re-taps or clears.
+        //   * oldValue == nil → newValue != nil — fresh tap. Apply
+        //     toggle (re-tap same slice clears) or new-selection
+        //     logic and emit.
+        //   * oldValue != nil → newValue != nil — drag in progress.
+        //     Update + emit only if the drag has crossed into a
+        //     different slice. Movement within the same slice
+        //     no-ops, so `onSelect` doesn't flood the JS bridge.
         guard let cum = newValue else { return }
         let next = resolveSlice(forAngleValue: cum)
-        if let nextSlice = next, nextSlice == selectedSlice {
-          // Tap-same-slice toggle — clear the visible highlight.
-          // We don't touch `selectedAngleY` because the framework
-          // will reset it on tap-up anyway, and writing it
-          // ourselves would fire `onChange` again (caught and
-          // ignored by the guard above, but still pointless).
-          selectedSlice = nil
-        } else {
+        let isFreshTap = (oldValue == nil)
+
+        if isFreshTap {
+          if let nextSlice = next, nextSlice == selectedSlice {
+            // Re-tap on the already-selected slice — toggle off.
+            // We don't touch `selectedAngleY`; the framework
+            // resets it on lift, and writing it ourselves would
+            // fire onChange (caught by the nil guard above but
+            // wasted work).
+            selectedSlice = nil
+          } else {
+            selectedSlice = next
+          }
+          emitSelect()
+        } else if next != selectedSlice {
+          // Drag crossed into a different slice (scrubber-style).
           selectedSlice = next
+          emitSelect()
         }
-        emitSelect()
+        // else: drag still inside the same slice → no-op, no emit.
       }
       .onChange(of: props.clearSelectionToken) { _, _ in
         clearSelectionState()
