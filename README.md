@@ -5,10 +5,10 @@
 > own `Charts` framework.
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/abdallaemadeldin/rn-native-ios-charts/HEAD/docs/demo.gif" alt="rn-native-ios-charts demo" width="360" />
+  <img src="https://raw.githubusercontent.com/abdallaemadeldin/rn-native-ios-charts/HEAD/docs/demo-v1.gif" alt="rn-native-ios-charts 1.0 demo" width="360" />
 </p>
 
-> [▶ Watch HD version](https://github.com/abdallaemadeldin/rn-native-ios-charts/raw/HEAD/docs/demo.mp4) — every chart type, native gradients, interactive tooltips, and pie center-label snapping.
+> [▶ Watch HD version](https://github.com/abdallaemadeldin/rn-native-ios-charts/raw/HEAD/docs/demo-v1.mp4) — 1.0 walkthrough: pie tooltip + slice highlight + dismiss, date axis with annotations, log scale, multi-series stacked tooltip, scroll-aware scale, and every other chart type. ([0.x demo](https://github.com/abdallaemadeldin/rn-native-ios-charts/raw/HEAD/docs/demo.mp4) is still archived for reference.)
 
 Cross-platform RN chart libraries (Victory, Skia, gifted-charts, etc.) all
 hit the same iOS ceilings:
