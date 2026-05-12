@@ -44,6 +44,20 @@ public class NativeIosChartsModule: Module {
       Prop("animate") { (view: ChartView, value: Bool) in
         view.props.animate = value
       }
+      Prop("animation") { (view: ChartView, value: ChartAnimationConfig) in
+        view.props.animation = value
+      }
+      Prop("annotations") { (view: ChartView, value: [ChartAnnotation]) in
+        view.props.annotations = value
+      }
+      // Imperative clear-selection signal. JS increments the token
+      // via `chartRef.clearSelection()`; the Swift side observes
+      // the change with `.onChange` and wipes selectedX /
+      // selectedAngleY / selectedSlice. The actual value is
+      // irrelevant — only the transition matters.
+      Prop("clearSelectionToken") { (view: ChartView, value: Int) in
+        view.props.clearSelectionToken = value
+      }
     }
   }
 }

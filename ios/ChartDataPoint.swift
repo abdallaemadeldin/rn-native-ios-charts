@@ -23,3 +23,17 @@ internal struct ChartDataPoint: Record {
 
   init() {}
 }
+
+extension ChartDataPoint {
+  /// Stable identity for `ForEach` diffing across data swaps. Index-
+  /// only identity caused stale layouts when the data prop was
+  /// replaced with a different set of x labels (e.g., a pie tab
+  /// switch) — SwiftUI re-used the old slice positions instead of
+  /// rebuilding them. Combining `x` + `category` is unique within
+  /// any single mark; appending the array index keeps it unique
+  /// even in the pathological case of duplicate (x, category)
+  /// pairs.
+  var identityKey: String {
+    "\(x)|\(category ?? "")"
+  }
+}

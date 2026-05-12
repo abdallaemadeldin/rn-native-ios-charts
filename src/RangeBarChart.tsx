@@ -1,7 +1,12 @@
 import * as React from "react";
+import { forwardRef, type Ref } from "react";
 import type { ColorValue, ViewStyle } from "react-native";
 import { Chart } from "./Chart";
+import type { ChartHandle } from "./useChartHandle";
+import { useChartHandle } from "./useChartHandle";
 import type {
+  AnimationConfig,
+  Annotation,
   AxisConfig,
   DataPoint,
   LegendConfig,
@@ -10,7 +15,7 @@ import type {
 } from "./types";
 
 export type RangeDatum = {
-  x: string;
+  x: string | Date;
   yStart: number;
   yEnd: number;
   category?: string;
@@ -27,6 +32,8 @@ export type RangeBarChartProps = {
   tooltip?: TooltipConfig;
   onSelect?: (point: SelectedPoint) => void;
   animate?: boolean;
+  animation?: AnimationConfig;
+  annotations?: Annotation[];
   style?: ViewStyle;
 };
 
@@ -35,42 +42,54 @@ export type RangeBarChartProps = {
  * Use for candlestick / OHLC visualisations, Gantt-style timelines,
  * or low/high bands.
  */
-export function RangeBarChart({
-  data,
-  color,
-  cornerRadius = 2,
-  xAxis,
-  yAxis,
-  legend,
-  tooltip,
-  onSelect,
-  animate,
-  style,
-}: RangeBarChartProps) {
-  const points: DataPoint[] = data.map((d) => ({
-    x: d.x,
-    y: d.yStart,
-    yEnd: d.yEnd,
-    category: d.category,
-    color: d.color,
-  }));
-  return (
-    <Chart
-      style={style}
-      animate={animate}
-      xAxis={xAxis}
-      yAxis={yAxis}
-      legend={legend}
-      tooltip={tooltip}
-      onSelect={onSelect}
-      marks={[
-        {
-          type: "rectangle",
-          data: points,
-          color,
-          cornerRadius,
-        },
-      ]}
-    />
-  );
-}
+// See LineChart.tsx for why we avoid `forwardRef<...>(...)` generics.
+export const RangeBarChart = forwardRef(
+  function RangeBarChart(
+    {
+      data,
+      color,
+      cornerRadius = 2,
+      xAxis,
+      yAxis,
+      legend,
+      tooltip,
+      onSelect,
+      animate,
+      animation,
+      annotations,
+      style,
+    }: RangeBarChartProps,
+    ref: Ref<ChartHandle>
+  ) {
+    const clearToken = useChartHandle(ref);
+    const points: DataPoint[] = data.map((d) => ({
+      x: d.x,
+      y: d.yStart,
+      yEnd: d.yEnd,
+      category: d.category,
+      color: d.color,
+    }));
+    return (
+      <Chart
+        style={style}
+        animate={animate}
+        animation={animation}
+        xAxis={xAxis}
+        yAxis={yAxis}
+        legend={legend}
+        tooltip={tooltip}
+        onSelect={onSelect}
+        annotations={annotations}
+        clearSelectionToken={clearToken}
+        marks={[
+          {
+            type: "rectangle",
+            data: points,
+            color,
+            cornerRadius,
+          },
+        ]}
+      />
+    );
+  }
+);

@@ -29,6 +29,43 @@ every mark type and every modifier we've needed in production. iOS-only
 by design — Android / web mount a no-op `<View />` so consuming code
 doesn't need to feature-detect.
 
+## See it all in one place — `examples/DemoScreen.tsx`
+
+The package ships a comprehensive demo screen at
+[`examples/DemoScreen.tsx`](./examples/DemoScreen.tsx) that
+exercises every chart type and every feature in this README:
+
+- Pie with tooltip + slice highlight + tap-outside dismiss, plus
+  tab-switching across three data shapes (same labels, different
+  labels, different counts) so you can verify the redraw fix.
+- Line — single series with area, multi-series with stacked
+  tooltip + cartesian dim-on-select, `tightX` trading-chart preset.
+- Date axis with annotations + range bands.
+- Log Y-scale for long-horizon growth.
+- Area with native gradient fill.
+- Bar — grouped, stacked, horizontal Top-N.
+- Scatter with per-category palette.
+- Range bar (OHLC-style).
+- Generic `<Chart>` with mixed marks (area + line + reference rule
+  + annotation).
+- `<ScrollAwareChart>` wrapping a chart at the bottom — scroll the
+  page to feel the scale + fade interpolation.
+
+Drop it into any Expo route to use as a regression sweep or as a
+copy-paste-friendly starting point:
+
+```tsx
+// app/charts-demo.tsx
+import { DemoScreen } from "rn-native-ios-charts/examples/DemoScreen";
+export default function ChartsDemoRoute() {
+  return <DemoScreen />;
+}
+```
+
+Self-contained — no theme system, no parent-project deps beyond
+`react`, `react-native`, `react-native-reanimated`, and this
+package.
+
 ## Components
 
 ### `<Chart />` — the generic, composable view
@@ -234,6 +271,242 @@ series' color dot, name, and formatted value.
 When the chart has only one cartesian mark, `multiSeries` silently
 falls back to the regular single-row tooltip — safe to leave on.
 
+## Scroll-aware scale — `<ScrollAwareChart>`
+
+Native-iOS feel for "card scales up when centered in the viewport"
+dashboards. The scale (and optional fade) interpolates against
+the chart's distance from viewport center, driven by your
+`Animated.ScrollView`'s scroll position — all frame computation
+stays on the UI thread via Reanimated worklets, so no JS bridge
+crossings and no jank.
+
+```tsx
+import Animated, {
+  useAnimatedScrollHandler,
+  useSharedValue,
+} from "react-native-reanimated";
+import { ScrollAwareChart, LineChart } from "rn-native-ios-charts";
+
+const scrollY = useSharedValue(0);
+const onScroll = useAnimatedScrollHandler({
+  onScroll: (e) => { scrollY.value = e.contentOffset.y; },
+});
+
+<Animated.ScrollView onScroll={onScroll} scrollEventThrottle={16}>
+  <ScrollAwareChart scrollY={scrollY} fadeOut>
+    <LineChart {...} tooltip={{ enabled: true }} />
+  </ScrollAwareChart>
+  {/* …other cards… */}
+</Animated.ScrollView>
+```
+
+### Options
+
+| Field | Default | Effect |
+| --- | --- | --- |
+| `scrollY` | required | `SharedValue<number>` driven by the parent scroll handler. |
+| `minScale` | `0.92` | Scale when the chart sits at the edges of `range`. |
+| `maxScale` | `1.0` | Scale when centered in the viewport. |
+| `fadeOut` | `false` | Also interpolate opacity. |
+| `minOpacity` | `0.5` | Opacity at the edges of `range` when `fadeOut: true`. |
+| `range` | `320` | Distance from viewport center (px) at which scale reaches `minScale`. Larger = gentler ramp. |
+| `viewportHeight` | window height | Override if your ScrollView is inset (modal sheet, behind a tab bar). |
+
+### Just the hook
+
+If you want to compose the scroll-scale style with your own
+animated transforms (shadows, tilt, parallax), use the hook
+directly:
+
+```tsx
+import { useChartScrollScale } from "rn-native-ios-charts";
+
+const { onLayout, style } = useChartScrollScale(scrollY, { fadeOut: true });
+
+<Animated.View onLayout={onLayout} style={[style, myCardShadow]}>
+  <LineChart {...} />
+</Animated.View>
+```
+
+### Requirements
+
+- **`react-native-reanimated >= 3.0.0`** as a peer dependency.
+  Declared optional, but importing `<ScrollAwareChart>` without it
+  installed will throw at module load — install it.
+- **For 120Hz on ProMotion devices**, add to your app's `Info.plist`:
+  ```xml
+  <key>CADisableMinimumFrameDurationOnPhone</key>
+  <true/>
+  ```
+  iOS caps third-party apps at 60Hz on ProMotion without this
+  flag, regardless of what Reanimated does. With it set and a UI-
+  thread-only worklet (the default for `useAnimatedStyle`), you
+  get 120Hz "for free."
+- In Reanimated 4+, `useScrollOffset(scrollRef)` is a cleaner
+  one-liner alternative to `useAnimatedScrollHandler` when you
+  don't need momentum/drag callbacks — feel free to use it as
+  the `scrollY` source instead.
+
+### Don't use inside recycled list cells
+
+`FlatList`/`FlashList` reuse cell instances, which keeps the
+shared values bound to the old row's layout. The result is
+stale scale values on the new row. Either:
+
+1. Wrap each chart at the screen level (outside the list), or
+2. Key your row component on the item id to force a fresh mount.
+
+For per-row scroll animation inside a recycled list, prefer
+Reanimated's `useAnimatedRef` + `measure()` worklet pattern with
+per-row shared values.
+
+## Animation config — `animation`
+
+Every wrapper (and `<Chart>`) accepts an `animation` prop that
+controls both data-change transitions and an optional entrance
+animation:
+
+```tsx
+<LineChart
+  data={monthlyRevenue}
+  animation={{
+    enabled: true,
+    duration: 400,          // ms
+    curve: "easeInOut",     // or "easeIn" | "easeOut" | "linear" | "spring"
+    entrance: true,         // fade + scale 0.96→1 on first mount
+    cartesianDimOnSelect: true,  // dim non-active marks when scrubber engages
+  }}
+  tooltip={{ enabled: true }}
+/>
+```
+
+| Field | Default | Effect |
+| --- | --- | --- |
+| `enabled` | `true` | Master toggle. `false` kills every animation including entrance and selection feedback. |
+| `duration` | `400` | Milliseconds for data-change transitions. Ignored when `curve` is `"spring"`. |
+| `curve` | `"easeInOut"` | One of `"easeInOut" \| "easeIn" \| "easeOut" \| "linear" \| "spring"`. |
+| `entrance` | `false` | Scale-from-0.96 + fade-in on first mount. Capped at 600ms regardless of `duration`. |
+| `cartesianDimOnSelect` | `false` | When the scrubber tooltip is active, fade non-active cartesian marks to `tooltip.dimOpacity`. Pie always dims when `tooltip.enabled` — this only affects line/area/bar/point. |
+
+The legacy `animate?: boolean` shorthand still works
+(`animate: false` disables everything, same as `animation: { enabled: false }`).
+When both `animate` and `animation` are passed, `animation` wins.
+
+Selection animations (pie slice scale + dim, cartesian dim-on-select)
+use a fixed spring tuned for tap feedback rather than the
+data-change curve — taps shouldn't feel as slow as redraws.
+
+## Date axis — pass `Date` objects for `x`
+
+Time-series charts can pass `Date` objects directly as the `x`
+value. The chart serializes them to ISO-8601 on the bridge and
+formats tick labels via `xAxis.valueFormat: "date"`:
+
+```tsx
+<LineChart
+  data={[
+    { x: new Date("2025-01-01"), y: 12000 },
+    { x: new Date("2025-06-01"), y: 38000 },
+    { x: new Date("2026-01-01"), y: 86000 },
+  ]}
+  xAxis={{
+    valueFormat: "date",
+    dateFormat: "MMM yy",   // → "Jan 25", "Jun 25", "Jan 26"
+  }}
+  tooltip={{ enabled: true, valuePrefix: "$" }}
+/>
+```
+
+| `dateFormat` | Output |
+| --- | --- |
+| `"MMM yy"` (default) | `Jan 26` |
+| `"MMM d"` | `Jan 15` |
+| `"yyyy"` | `2026` |
+| `"MMM d, yyyy"` | `Jan 15, 2026` |
+| `"HH:mm"` | `14:30` |
+
+Apple `DateFormatter` syntax (UTS #35) — see
+[nsdateformatter.com](https://nsdateformatter.com) for a live
+preview. Tooltip X labels honor the same format automatically.
+
+**Scope note.** The chart's internal scale stays categorical —
+each date you pass becomes one tick. For multi-year ranges with
+daily data you'll want to thin the input array yourself (e.g.
+"first business day of each month") rather than relying on
+auto-aggregation. A true `Date`-domain `chartXScale` with
+auto-tick aggregation is on the roadmap.
+
+## Log scale — `yAxis.scaleType`
+
+For long-horizon growth charts (where linear flattens the early
+years into nothing), set `yAxis.scaleType: "log"`:
+
+```tsx
+<LineChart
+  data={networthSince2010}     // [{ x: new Date(...), y: 10000 }, ... { y: 1_500_000 }]
+  yAxis={{
+    scaleType: "log",
+    domainMin: 1000,           // log scales require y > 0; clamp out outliers
+    valueFormat: "abbreviated",
+  }}
+  xAxis={{ valueFormat: "date" }}
+/>
+```
+
+Y-only for this release. Log scales require strictly positive
+values — set a positive `domainMin` to clip zeros / negatives.
+
+## Annotations & range bands
+
+Annotations are commentary layered on top of the marks —
+datum-anchored labels (a "Q1 earnings" callout above one bar) or
+shaded vertical bands (a "Q4" shaded region across a date range).
+They live outside `marks` so toggling commentary doesn't touch
+the data:
+
+```tsx
+<LineChart
+  data={pricesByDate}
+  xAxis={{ valueFormat: "date" }}
+  annotations={[
+    // Datum-anchored — floats near the top of the plot at this X.
+    {
+      x: new Date("2025-03-15"),
+      text: "Earnings",
+      color: "#1FA92E",
+      position: "top",
+    },
+    // Range band — shaded vertical region between two dates.
+    {
+      xRange: [new Date("2025-10-01"), new Date("2025-12-31")],
+      text: "Q4",
+      color: "#3B82F6",
+      position: "inside",
+    },
+    // Range band constrained to a Y window.
+    {
+      xRange: [new Date("2025-04-01"), new Date("2025-06-30")],
+      yRange: [40, 60],
+      text: "target zone",
+      color: "#F59E0B",
+    },
+  ]}
+/>
+```
+
+| Field | Notes |
+| --- | --- |
+| `x` | Datum anchor (use **either** `x` or `xRange`, not both). Accepts `Date`. |
+| `xRange: [from, to]` | Range band endpoints. Accepts `Date`. |
+| `yRange?: [lo, hi]` | Optional vertical extent (data coords). Defaults to full plot. |
+| `text?` | Optional label. Omit for marker-only bands. |
+| `color?` | Band fill / label color. Defaults to system blue (bands) / label (labels). |
+| `position?` | `"top" \| "bottom" \| "inside"`. Default `"top"`. |
+| `fontSize?` | Label font size in pt. Default 11. |
+
+Drawn under the tooltip so the active callout always paints on
+top.
+
 ## Axis value formatters
 
 Format the tick labels on either axis without writing custom Swift.
@@ -428,9 +701,11 @@ when two slices or points share the same y. Pies emit the slice
 index on tap; cartesian charts emit the first cartesian mark's
 index for the selected X.
 
-For pie / donut charts there's no visual callout — `onSelect` fires
-on slice taps via `chartAngleSelection`, and the natural place to
-display the info is the `centerLabel`:
+For pie / donut charts, `onSelect` fires on slice taps via
+`chartAngleSelection`. As of 1.0, you can either:
+
+1. **Drive `centerLabel` from the selection** — classic donut-hole
+   readout pattern (still the right call for compact dashboards):
 
 ```tsx
 import { useState } from "react";
@@ -451,6 +726,122 @@ const [center, setCenter] = useState({ value: "$148K", label: "Total" });
   }}
 />
 ```
+
+2. **Enable the visual callout** with `tooltip.enabled` — see
+   [Pie tooltip & slice highlight](#pie-tooltip--slice-highlight)
+   below. The callout, slice bump, and dim-others animation are all
+   native-drawn; you don't have to write any of it.
+
+## Pie tooltip & slice highlight
+
+Pass `tooltip` to `<PieChart>` and the chart will:
+
+1. **Bump the selected slice** outward (`tooltip.sliceScale`,
+   default `1.05`). Implemented by shrinking the unselected slices
+   in tandem so the bump can't overflow the chart frame.
+2. **Dim unselected slices** to `tooltip.dimOpacity` (default
+   `0.3`).
+3. **Draw a leader line + callout** from the slice's outer edge to
+   a bubble anchored just outside the chart's outer radius at the
+   slice's midpoint angle. The callout is clamped to the chart's
+   bounds so it never spills past the host view.
+4. **Toggle on re-tap** — tapping the same slice again clears the
+   selection.
+5. **Dismiss on miss** — tapping empty area inside the chart frame
+   (the donut hole, corners, gaps) clears too.
+
+```tsx
+import { useRef } from "react";
+import { Pressable, Text, View } from "react-native";
+import { PieChart, type PieChartHandle } from "rn-native-ios-charts";
+
+const chartRef = useRef<PieChartHandle>(null);
+
+<View style={{ alignItems: "center" }}>
+  <PieChart
+    ref={chartRef}
+    style={{ width: 240, height: 240 }}
+    data={portfolio}
+    innerRadius={0.62}
+    angularInset={2}
+    cornerRadius={4}
+    tooltip={{
+      enabled: true,
+      valuePrefix: "$",
+      valueDecimals: 0,
+      backgroundColor: "#161618",
+      textColor: "#FFFFFF",
+      borderColor: "#2A2A2D",
+      // Pie-specific tuning:
+      dimOpacity: 0.3,   // fade unselected slices
+      sliceScale: 1.05,  // bump selected slice
+    }}
+    onSelect={(point) => {
+      if (point) console.log(`${point.x}: $${point.y}`);
+    }}
+  />
+  {/* External dismiss button — sits OUTSIDE the chart so it
+      doesn't fight the chart's gestures. See the section below
+      for why wrapping the chart in <Pressable> doesn't work. */}
+  <Pressable onPress={() => chartRef.current?.clearSelection()}>
+    <Text>Clear selection</Text>
+  </Pressable>
+</View>
+```
+
+### Dismissing the selection
+
+| Action | What happens |
+| --- | --- |
+| **Tap a different slice** | Selection switches to that slice. |
+| **Tap the same selected slice** | Selection clears (toggle). |
+| **`chartRef.current?.clearSelection()`** | Selection clears programmatically. |
+
+> **Note.** An earlier alpha had a "tap empty area inside the chart frame to clear" path via a transparent backdrop, but the backdrop's `.onTapGesture` competed with `chartAngleSelection`'s slice-tap gesture and made the tooltip flicker / fail to appear. It's been removed. A geometry-aware version that only fires on taps outside the pie's angular footprint is on the roadmap.
+
+### Pitfall — don't wrap the chart in `<Pressable>`
+
+Tempting pattern: `<Pressable onPress={clear}><PieChart /></Pressable>`.
+Broken. RN's responder chain claims taps inside the Pressable
+*before* SwiftUI's `chartAngleSelection` sees them, so every slice
+tap fires `clear()` instead of selecting the slice. The chart
+appears unresponsive to taps.
+
+For tap-outside-the-chart dismiss, place the `<Pressable>` as a
+**sibling** of the chart (above, below, or absolutely positioned
+behind it with `pointerEvents="box-only"`), never wrapping it.
+The chart already handles "tap empty area inside my own bounds"
+via its internal backdrop — you only need the external Pressable
+for clicks well away from the chart.
+
+`clearSelection()` is the single method on the shared `ChartHandle`
+type — every wrapper (`PieChart`, `LineChart`, `BarChart`,
+`AreaChart`, `ScatterChart`, `RangeBarChart`) `forwardRef`s the
+same interface. `PieChartHandle` is kept as a type alias for
+`ChartHandle` so existing code keeps working:
+
+```tsx
+import { useRef } from "react";
+import { LineChart, type ChartHandle } from "rn-native-ios-charts";
+
+const chartRef = useRef<ChartHandle>(null);
+
+<LineChart ref={chartRef} data={...} tooltip={{ enabled: true }} />
+
+// Anywhere:
+chartRef.current?.clearSelection();
+```
+
+For consumers building their own wrappers, `useChartHandle(ref)`
+is exported — it returns the `clearSelectionToken` you pass to
+`<Chart>` and wires up the imperative method on the ref.
+
+### When `tooltip.enabled` is `false`
+
+`onSelect` still fires on slice taps (so the `centerLabel` pattern
+keeps working), but no leader line / callout / highlight is drawn.
+This mirrors the cartesian charts' opt-in tooltip behavior — charts
+stay static unless you explicitly enable the interactive layer.
 
 ## Supported marks
 
@@ -499,7 +890,15 @@ const [center, setCenter] = useState({ value: "$148K", label: "Total" });
   scrolling. See [Horizontal scrolling](#horizontal-scrolling-for-long-time-series).
 - `categoryColors`: map `category` strings → colors. See
   [Category color palettes](#category-color-palettes--categorycolors).
-- `animate`: toggle SwiftUI's native ease-in-out on data changes.
+- `animate`: legacy boolean toggle. Use `animation` (below) for
+  richer control; `animate` stays as a shorthand for
+  `{ enabled: true }`.
+- `animation`: chart-level animation config — `enabled`,
+  `duration`, `curve`, `entrance`, `cartesianDimOnSelect`. See
+  [Animation config](#animation-config--animation).
+- `annotations`: datum-anchored labels and shaded range bands
+  drawn over the marks. See
+  [Annotations & range bands](#annotations--range-bands).
 
 `xAxis` / `yAxis` honor every field — `labelColor`, `labelFontSize`,
 `gridColor`, `gridLines`, `tickLabels`, plus optional `[domainMin,

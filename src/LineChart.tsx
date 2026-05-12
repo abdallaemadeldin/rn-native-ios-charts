@@ -1,7 +1,12 @@
 import * as React from "react";
+import { forwardRef, type Ref } from "react";
 import type { ColorValue, ViewStyle } from "react-native";
 import { Chart } from "./Chart";
+import type { ChartHandle } from "./useChartHandle";
+import { useChartHandle } from "./useChartHandle";
 import type {
+  AnimationConfig,
+  Annotation,
   AxisConfig,
   DataPoint,
   Gradient,
@@ -14,7 +19,8 @@ import type {
 } from "./types";
 
 export type LinePoint = {
-  x: string;
+  /** Categorical string ("Q1", "AAPL") or a `Date` for time-series. */
+  x: string | Date;
   y: number;
   category?: string;
   /** Per-point color override. */
@@ -34,7 +40,7 @@ export type LineSeries = {
   /** Series name — used as the `category` key, the legend label,
    *  and the row label in the multi-series tooltip. */
   name: string;
-  data: { x: string; y: number }[];
+  data: { x: string | Date; y: number }[];
   color?: ColorValue;
   lineWidth?: number;
   dashArray?: number[];
@@ -81,34 +87,52 @@ export type LineChartProps = {
   tightX?: boolean;
   /** Custom category → color palette. Useful when `series` is set. */
   categoryColors?: Record<string, ColorValue>;
+  /** Legacy boolean shorthand for `animation: { enabled: true }`. */
   animate?: boolean;
+  /** Full animation config — curve, duration, entrance, dim-on-select. */
+  animation?: AnimationConfig;
+  /** Datum-anchored labels + range bands. See `Annotation`. */
+  annotations?: Annotation[];
   style?: ViewStyle;
 };
 
-export function LineChart({
-  data,
-  series,
-  color,
-  lineWidth = 2.5,
-  interpolation = "catmullRom",
-  dashArray,
-  area,
-  showPoints,
-  symbol,
-  symbolSize,
-  xAxis,
-  yAxis,
-  legend,
-  tooltip,
-  onSelect,
-  scrollableX,
-  visibleXCount,
-  tightX,
-  categoryColors,
-  animate,
-  style,
-}: LineChartProps) {
-  const marks: Mark[] = [];
+// NOTE: don't put generics on the `forwardRef<…, …>(…)` call here.
+// Babel's TSX parser conflates the leading `<` with a JSX tag and
+// bails with "Missing initializer in const declaration" before
+// reaching the body. Typing the inner function's parameters
+// explicitly gives TypeScript the same generic inference without
+// the parse hazard.
+export const LineChart = forwardRef(
+  function LineChart(
+    {
+      data,
+      series,
+      color,
+      lineWidth = 2.5,
+      interpolation = "catmullRom",
+      dashArray,
+      area,
+      showPoints,
+      symbol,
+      symbolSize,
+      xAxis,
+      yAxis,
+      legend,
+      tooltip,
+      onSelect,
+      scrollableX,
+      visibleXCount,
+      tightX,
+      categoryColors,
+      animate,
+      animation,
+      annotations,
+      style,
+    }: LineChartProps,
+    ref: Ref<ChartHandle>,
+  ) {
+    const clearToken = useChartHandle(ref);
+    const marks: Mark[] = [];
 
   if (series && series.length > 0) {
     // Multi-series path. Each series produces (optionally) an area
@@ -184,20 +208,24 @@ export function LineChart({
     });
   }
 
-  return (
-    <Chart
-      style={style}
-      animate={animate}
-      xAxis={xAxis}
-      yAxis={yAxis}
-      legend={legend}
-      tooltip={tooltip}
-      onSelect={onSelect}
-      scrollableX={scrollableX}
-      visibleXCount={visibleXCount}
-      tightX={tightX}
-      categoryColors={categoryColors}
-      marks={marks}
-    />
-  );
-}
+    return (
+      <Chart
+        style={style}
+        animate={animate}
+        animation={animation}
+        xAxis={xAxis}
+        yAxis={yAxis}
+        legend={legend}
+        tooltip={tooltip}
+        onSelect={onSelect}
+        scrollableX={scrollableX}
+        visibleXCount={visibleXCount}
+        tightX={tightX}
+        categoryColors={categoryColors}
+        annotations={annotations}
+        clearSelectionToken={clearToken}
+        marks={marks}
+      />
+    );
+  }
+);

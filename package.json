@@ -1,6 +1,6 @@
 {
   "name": "rn-native-ios-charts",
-  "version": "0.2.3",
+  "version": "1.0.0-alpha.3",
   "description": "Native SwiftUI Charts for React Native / Expo. iOS-only, zero-compromise charts that bypass the limitations of cross-platform chart libraries.",
   "main": "src/index.ts",
   "types": "src/index.ts",
@@ -30,6 +30,7 @@
     "src",
     "ios",
     "docs",
+    "examples",
     "expo-module.config.json",
     "package.json",
     "README.md",
@@ -39,7 +40,13 @@
   "peerDependencies": {
     "expo": "*",
     "react": "*",
-    "react-native": "*"
+    "react-native": "*",
+    "react-native-reanimated": ">=3.0.0"
+  },
+  "peerDependenciesMeta": {
+    "react-native-reanimated": {
+      "optional": true
+    }
   },
   "directories": {
     "doc": "docs"
