@@ -1256,7 +1256,15 @@ private struct ChartHostView: View {
     pointIndex: Int
   ) -> some ChartContent {
     let isSelected = selectedSlice == SliceID(mark: markIndex, point: pointIndex)
-    let highlightActive = props.tooltip.enabled && selectedSlice != nil
+    // Dim + slice-scale engage whenever there's a selected slice,
+    // regardless of `tooltip.enabled`. The latter only controls the
+    // leader-line + callout overlay (see `tooltipOverlay`). This lets
+    // callers that drive their own selection UI via `onSelect` (e.g.
+    // a center-label that updates on tap) still get the standard
+    // "selected slice pops, others fade" visual feedback without
+    // having to opt into the built-in callout. Matches the docs on
+    // `TooltipConfig.dimOpacity` which never mentioned a gate.
+    let highlightActive = selectedSlice != nil
     // Base radius the caller asked for. `.inset(0)` and `.ratio(1.0)`
     // resolve to the same geometry when the plot's frame is square,
     // so normalising to a ratio here lets us interpolate cleanly
