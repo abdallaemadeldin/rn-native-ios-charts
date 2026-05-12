@@ -136,12 +136,17 @@ private struct ChartHostView: View {
   /// delta is.
   @State private var renderedMarks: [ChartMark] = []
 
-  /// Identifies a pie slice by its (markIndex, pointIndex) pair.
-  /// Equatable so SwiftUI's implicit animations can interpolate on
-  /// changes to `selectedSlice`.
+  /// Identifies a pie slice by its mark position and identity key.
+  /// The key (`identityKey` on `ChartDataPoint`, currently
+  /// `"x|category"`) is stable across data swaps and reorderings,
+  /// so the active highlight survives value updates and correctly
+  /// invalidates when the underlying slice disappears. Carrying a
+  /// raw `pointIndex` instead (the previous shape) would have left
+  /// selection pinned to whatever happened to land at that slot in
+  /// the next dataset.
   private struct SliceID: Equatable {
     let mark: Int
-    let point: Int
+    let key: String
   }
 
   var body: some View {
@@ -270,6 +275,21 @@ private struct ChartHostView: View {
         } else {
           renderedMarks = props.marks
         }
+        // Invalidate selection state when the previously-selected
+        // slice no longer exists in the new data. Without this,
+        // selecting "Stocks" on a portfolio pie and then swapping
+        // to a different breakdown (where "Stocks" is gone) leaves
+        // `selectedSlice` pointing at a `(mark, key)` pair that no
+        // longer resolves — the highlight visually clears but
+        // `selectedAngleY` retains a stale cumulative-angle value
+        // from the previous dataset, which can cause spurious
+        // emits on the next angle-change. Clearing both here keeps
+        // the selection model in lockstep with the data.
+        if let slice = selectedSlice, selectedSliceData(slice) == nil {
+          selectedSlice = nil
+          selectedAngleY = nil
+          emitSelect()
+        }
       }
       // Animate the slice scale + dim independently of data-change
       // animation so taps feel snappier than the slower data ease.
@@ -380,16 +400,15 @@ private struct ChartHostView: View {
     guard let cum = angle else { return nil }
     for (mi, mark) in props.marks.enumerated() where mark.type == "sector" {
       var accumulator: Double = 0
-      for (pi, point) in mark.data.enumerated() {
+      for point in mark.data {
         let upper = accumulator + point.y
-        // Use a closed range so cum == 0 maps to the first slice
-        // and cum == total maps to the last. Successive boundaries
-        // can technically match both adjacent slices; insertion
-        // order resolves ties — the earlier slice wins, which is
-        // fine because tapping exactly on a slice boundary is
-        // essentially zero-probability.
+        // Closed range so cum == 0 maps to the first slice and
+        // cum == total maps to the last. Successive boundaries
+        // can match both adjacent slices; insertion order wins —
+        // tapping exactly on a boundary is essentially zero-
+        // probability.
         if cum >= accumulator && cum <= upper {
-          return SliceID(mark: mi, point: pi)
+          return SliceID(mark: mi, key: point.identityKey)
         }
         accumulator = upper
       }
@@ -565,9 +584,9 @@ private struct ChartHostView: View {
               let resolved = selectedSliceData(slice) {
       pieTooltipView(
         proxy: proxy,
-        slice: slice,
         mark: resolved.mark,
-        point: resolved.point
+        point: resolved.point,
+        pointIndex: resolved.pointIndex
       )
     }
   }
@@ -632,9 +651,9 @@ private struct ChartHostView: View {
   @ViewBuilder
   private func pieTooltipView(
     proxy: ChartProxy,
-    slice: SliceID,
     mark: ChartMark,
-    point: ChartDataPoint
+    point: ChartDataPoint,
+    pointIndex: Int
   ) -> some View {
     GeometryReader { geo in
       if let plotFrame = proxy.plotFrame {
@@ -648,7 +667,7 @@ private struct ChartHostView: View {
           // the `for` loop stays out of the `@ViewBuilder` body —
           // result builders don't accept control-flow statements
           // whose bodies don't yield views.
-          let before = cumulativeYBefore(slice: slice, in: mark)
+          let before = cumulativeYBefore(pointIndex: pointIndex, in: mark)
           let midpointFraction = (before + point.y / 2.0) / total
           let angleRad = (midpointFraction * 360.0 - 90.0) * .pi / 180.0
           let center = CGPoint(x: plot.midX, y: plot.midY)
@@ -718,31 +737,43 @@ private struct ChartHostView: View {
   /// Sum of `y` values for slices BEFORE the selected one, used to
   /// compute the cumulative-fraction angle that locates the slice's
   /// midpoint. Pure helper extracted from `pieTooltipView` so the
-  /// `for` loop stays out of the `@ViewBuilder` body.
+  /// `for` loop stays out of the `@ViewBuilder` body. Takes a
+  /// resolved `pointIndex` so callers don't pay the identity-key
+  /// lookup twice (the tooltip path already resolved the index via
+  /// `selectedSliceData`).
   private func cumulativeYBefore(
-    slice: SliceID,
+    pointIndex: Int,
     in mark: ChartMark
   ) -> Double {
     var total = 0.0
-    let upper = min(slice.point, mark.data.count)
+    let upper = min(pointIndex, mark.data.count)
     for i in 0..<upper {
       total += mark.data[i].y
     }
     return total
   }
 
-  /// Looks up the (mark, point) referenced by a `SliceID`, returning
-  /// nil if the indices have drifted out of range (e.g. after a
-  /// data swap raced ahead of the selection state). Mirrors the
-  /// bounds checks scattered through `emitSelect` and the overlay.
+  /// Looks up the slice referenced by a `SliceID`, returning nil
+  /// when no slice with that identity is present in `props.marks`.
+  /// Identity-based lookup (matching `point.identityKey`) replaces
+  /// the previous index-based lookup so a data swap that
+  /// reorders/drops the selected slice cleanly invalidates the
+  /// selection instead of silently pointing at whatever happens to
+  /// land at the old index.
+  ///
+  /// Returns the resolved `pointIndex` too so callers (the tooltip
+  /// overlay's leader-line math, `emitSelect`'s payload) can use
+  /// it without re-walking the data.
   private func selectedSliceData(
     _ slice: SliceID
-  ) -> (mark: ChartMark, point: ChartDataPoint)? {
+  ) -> (mark: ChartMark, point: ChartDataPoint, pointIndex: Int)? {
     guard slice.mark >= 0, slice.mark < props.marks.count else { return nil }
     let mark = props.marks[slice.mark]
     guard mark.type == "sector" else { return nil }
-    guard slice.point >= 0, slice.point < mark.data.count else { return nil }
-    return (mark, mark.data[slice.point])
+    guard let pi = mark.data.firstIndex(
+      where: { $0.identityKey == slice.key }
+    ) else { return nil }
+    return (mark, mark.data[pi], pi)
   }
 
   /// Picks single-row or multi-row callout based on `tooltip.multiSeries`.
@@ -1005,15 +1036,17 @@ private struct ChartHostView: View {
       ])
       return
     }
-    if let slice = selectedSlice,
-       slice.mark < props.marks.count,
-       slice.point < props.marks[slice.mark].data.count {
-      let p = props.marks[slice.mark].data[slice.point]
+    if let slice = selectedSlice, let resolved = selectedSliceData(slice) {
+      // `resolved.pointIndex` is the position of the slice with the
+      // stored identity key in the *current* data — if the slice
+      // was reordered between selection and this emit, the index is
+      // still correct, and if it was removed, `selectedSliceData`
+      // returns nil and we fall through to the cleared emit below.
       props.onSelect?([
-        "x": p.x,
-        "y": p.y,
+        "x": resolved.point.x,
+        "y": resolved.point.y,
         "markIndex": slice.mark,
-        "pointIndex": slice.point,
+        "pointIndex": resolved.pointIndex,
       ])
       return
     }
@@ -1271,7 +1304,16 @@ private struct ChartHostView: View {
     markIndex: Int,
     pointIndex: Int
   ) -> some ChartContent {
-    let isSelected = selectedSlice == SliceID(mark: markIndex, point: pointIndex)
+    // Identity-based match — comparing on `point.identityKey`
+    // instead of `pointIndex` is what closes bug #2: during a
+    // data-change animation the `ForEach` iterates the visible
+    // data (whether that's `renderedMarks` or `props.marks`)
+    // while `selectedSlice` was captured against a possibly-
+    // different ordering. Position-based equality would light up
+    // the wrong slice; key-based equality lights up the right one
+    // regardless of which array the iteration source uses.
+    let isSelected = selectedSlice?.mark == markIndex
+      && selectedSlice?.key == point.identityKey
     // Dim + slice-scale engage whenever there's a selected slice,
     // regardless of `tooltip.enabled`. The latter only controls the
     // leader-line + callout overlay (see `tooltipOverlay`). This lets
@@ -1482,13 +1524,13 @@ private struct ChartHostView: View {
 /// optional grid lines, optional tick labels, value formatters) we
 /// have to build custom `AxisMarks` content.
 @available(iOS 17.0, *)
-private extension View {
-  @ViewBuilder
-  func customizedXAxis(config: ChartAxisConfig) -> some View {
+private struct CustomXAxisMod: ViewModifier {
+  let config: ChartAxisConfig
+  func body(content: Content) -> some View {
     if config.hidden {
-      self.chartXAxis(.hidden)
+      content.chartXAxis(.hidden)
     } else {
-      self.chartXAxis {
+      content.chartXAxis {
         AxisMarks(values: .automatic) { axisValue in
           if config.gridLines {
             AxisGridLine()
@@ -1516,13 +1558,16 @@ private extension View {
       }
     }
   }
+}
 
-  @ViewBuilder
-  func customizedYAxis(config: ChartAxisConfig) -> some View {
+@available(iOS 17.0, *)
+private struct CustomYAxisMod: ViewModifier {
+  let config: ChartAxisConfig
+  func body(content: Content) -> some View {
     if config.hidden {
-      self.chartYAxis(.hidden)
+      content.chartYAxis(.hidden)
     } else {
-      self.chartYAxis {
+      content.chartYAxis {
         AxisMarks(values: .automatic) { axisValue in
           if config.gridLines {
             AxisGridLine()
@@ -1549,6 +1594,20 @@ private extension View {
         }
       }
     }
+  }
+}
+
+@available(iOS 17.0, *)
+private extension View {
+  /// Custom X-axis builder — same rationale as the conditional
+  /// scale/selection modifiers below: wraps the if/else inside a
+  /// `ViewModifier.body` so the outer call-site type stays uniform.
+  func customizedXAxis(config: ChartAxisConfig) -> some View {
+    self.modifier(CustomXAxisMod(config: config))
+  }
+
+  func customizedYAxis(config: ChartAxisConfig) -> some View {
+    self.modifier(CustomYAxisMod(config: config))
   }
 }
 
@@ -1649,104 +1708,98 @@ private func formatAxisValue(
   return "\(config.valuePrefix)\(core)\(config.valueSuffix)"
 }
 
-/// Conditional selection modifiers. `chartXSelection` and
-/// `chartAngleSelection` are always-on when applied — they install
-/// gesture recognizers that fire even when the bound state never
-/// resolves to anything useful (e.g., long-pressing a pie-only
-/// chart triggers `chartXSelection`'s drag tracking continuously,
-/// because the recognizer doesn't know the chart has no cartesian
-/// marks). Gating them on the mark types that need them keeps
-/// `onSelect` quiet for irrelevant gestures.
-@available(iOS 17.0, *)
-private extension View {
-  @ViewBuilder
-  func conditionalChartXSelection(
-    value: Binding<String?>,
-    enabled: Bool
-  ) -> some View {
-    if enabled {
-      self.chartXSelection(value: value)
-    } else {
-      self
-    }
-  }
+/// Conditional chart modifiers, wrapped as `ViewModifier` structs
+/// rather than `@ViewBuilder` extensions.
+///
+/// The change matters for cold-start performance. The previous
+/// pattern —
+///
+/// ```swift
+/// @ViewBuilder
+/// func conditionalFoo(...) -> some View {
+///   if cond { self.someChartModifier(...) } else { self }
+/// }
+/// ```
+///
+/// — produces `_ConditionalContent<TrueBranch, FalseBranch>` at
+/// every call site, two distinct concrete `View` types per
+/// modifier. With 7+ such conditionals chained, SwiftUI specialises
+/// 2^N possible concrete types for the chart's body and resolves
+/// the active path on first render. That resolution dominates cold-
+/// start time (the well-known AttributeGraph cliff documented on
+/// Apple's forums and in WWDC23's "Demystify SwiftUI Performance").
+///
+/// Wrapping the branching inside a `ViewModifier.body(content:)`
+/// keeps the outer call-site type uniform — every call produces
+/// `ModifiedContent<Self, Modifier>` regardless of which inner
+/// branch runs. The chain becomes linear depth `ModifiedContent<…,
+/// M>` instead of combinatorial `_ConditionalContent<…>`, so
+/// SwiftUI's first-eval cost is bounded by chain length, not
+/// branch combinations.
 
-  @ViewBuilder
-  func conditionalChartAngleSelection(
-    value: Binding<Double?>,
-    enabled: Bool
-  ) -> some View {
+@available(iOS 17.0, *)
+private struct ChartXSelectionMod: ViewModifier {
+  let binding: Binding<String?>
+  let enabled: Bool
+  func body(content: Content) -> some View {
     if enabled {
-      self.chartAngleSelection(value: value)
+      content.chartXSelection(value: binding)
     } else {
-      self
+      content
     }
   }
 }
 
-/// Conditional axis-scale modifiers. SwiftUI's `chartXScale(domain:)`
-/// and `chartYScale(domain:)` require a non-optional `ClosedRange`,
-/// so we can't just pass the optional result of `scaleDomain` —
-/// these helpers apply the modifier only when the domain is set,
-/// otherwise return the view unmodified.
 @available(iOS 17.0, *)
-private extension View {
-  @ViewBuilder
-  func conditionalChartXScale(domain: ClosedRange<Double>?) -> some View {
-    if let domain {
-      self.chartXScale(domain: domain)
+private struct ChartAngleSelectionMod: ViewModifier {
+  let binding: Binding<Double?>
+  let enabled: Bool
+  func body(content: Content) -> some View {
+    if enabled {
+      content.chartAngleSelection(value: binding)
     } else {
-      self
+      content
     }
   }
+}
 
-  @ViewBuilder
-  func conditionalChartYScale(
-    domain: ClosedRange<Double>?,
-    logarithmic: Bool = false
-  ) -> some View {
+@available(iOS 17.0, *)
+private struct ChartXScaleMod: ViewModifier {
+  let domain: ClosedRange<Double>?
+  func body(content: Content) -> some View {
+    if let domain {
+      content.chartXScale(domain: domain)
+    } else {
+      content
+    }
+  }
+}
+
+@available(iOS 17.0, *)
+private struct ChartYScaleMod: ViewModifier {
+  let domain: ClosedRange<Double>?
+  let logarithmic: Bool
+  func body(content: Content) -> some View {
     switch (domain, logarithmic) {
     case (let d?, true):
-      // Log + explicit domain. SwiftUI requires the domain to be
-      // strictly positive when type is `.log` — caller is
-      // responsible for clamping; we just forward the values.
-      self.chartYScale(domain: d, type: .log)
+      content.chartYScale(domain: d, type: .log)
     case (let d?, false):
-      self.chartYScale(domain: d)
+      content.chartYScale(domain: d)
     case (nil, true):
-      self.chartYScale(type: .log)
+      content.chartYScale(type: .log)
     case (nil, false):
-      self
+      content
     }
   }
+}
 
-  /// Trading-chart X mode. Three coordinated tricks make the line /
-  /// area / bars reach both edges of the chart frame regardless of
-  /// data density:
-  ///
-  /// 1. **Explicit categorical domain** — SwiftUI positions
-  ///    categorical values at the CENTER of evenly-sized cells by
-  ///    default (leaves a half-cell gap on each end, brutal with
-  ///    few points). Passing the X strings as `domain:` pins the
-  ///    first value to pixel 0 and the last to pixel-max.
-  ///
-  /// 2. **`.plotDimension(startPadding: 0, endPadding: 0)`** —
-  ///    zeros out the scale's outer padding within the plot area.
-  ///
-  /// 3. **`chartPlotStyle { $0.frame(maxWidth: .infinity,
-  ///    maxHeight: .infinity) }`** — forces the plot area itself to
-  ///    fill the chart's full frame, in case SwiftUI's hidden axes
-  ///    still reserve any space.
-  ///
-  /// All three together give the Robinhood / Apple Stocks look
-  /// where the chart's content truly spans edge-to-edge.
-  @ViewBuilder
-  func conditionalTightX(
-    enabled: Bool,
-    xDomain: [String]
-  ) -> some View {
+@available(iOS 17.0, *)
+private struct TightXMod: ViewModifier {
+  let enabled: Bool
+  let xDomain: [String]
+  func body(content: Content) -> some View {
     if enabled && !xDomain.isEmpty {
-      self
+      content
         .chartXScale(
           domain: xDomain,
           range: .plotDimension(startPadding: 0, endPadding: 0)
@@ -1755,10 +1808,7 @@ private extension View {
           plot.frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     } else if enabled {
-      // No data yet — apply just the range + plot expansion so the
-      // chart doesn't crash; once data arrives a re-render will set
-      // the categorical domain.
-      self
+      content
         .chartXScale(
           range: .plotDimension(startPadding: 0, endPadding: 0)
         )
@@ -1766,49 +1816,100 @@ private extension View {
           plot.frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     } else {
-      self
+      content
     }
   }
+}
 
-  /// Native horizontal scrolling. When `visibleCount > 0`, also caps
-  /// how many X categories are visible at once. Keeps tooltip coords
-  /// and chart selection gestures working — unlike wrapping in a
-  /// RN `<ScrollView horizontal>`.
-  @ViewBuilder
-  func conditionalScrollable(enabled: Bool, visibleCount: Int) -> some View {
+@available(iOS 17.0, *)
+private struct ScrollableMod: ViewModifier {
+  let enabled: Bool
+  let visibleCount: Int
+  func body(content: Content) -> some View {
     if enabled {
       if visibleCount > 0 {
-        self
+        content
           .chartScrollableAxes(.horizontal)
           .chartXVisibleDomain(length: visibleCount)
       } else {
-        self.chartScrollableAxes(.horizontal)
+        content.chartScrollableAxes(.horizontal)
       }
     } else {
-      self
+      content
     }
   }
+}
 
-  /// Custom category → color mapping. Translates `[String: UIColor]`
-  /// into SwiftUI's `chartForegroundStyleScale` so consumers can
-  /// define their palette once at the chart level instead of setting
-  /// `color` on every datum.
-  @ViewBuilder
-  func conditionalCategoryColors(
-    _ mapping: [String: UIColor]
-  ) -> some View {
+@available(iOS 17.0, *)
+private struct CategoryColorsMod: ViewModifier {
+  let mapping: [String: UIColor]
+  func body(content: Content) -> some View {
     if mapping.isEmpty {
-      self
+      content
     } else {
       // Stable iteration order so SwiftUI's diffing doesn't churn.
       let keys = mapping.keys.sorted()
-      self.chartForegroundStyleScale(
+      content.chartForegroundStyleScale(
         domain: keys,
         range: keys.map { key in
           Color(mapping[key] ?? UIColor.label)
         }
       )
     }
+  }
+}
+
+@available(iOS 17.0, *)
+private extension View {
+  func conditionalChartXSelection(
+    value: Binding<String?>,
+    enabled: Bool
+  ) -> some View {
+    self.modifier(ChartXSelectionMod(binding: value, enabled: enabled))
+  }
+
+  func conditionalChartAngleSelection(
+    value: Binding<Double?>,
+    enabled: Bool
+  ) -> some View {
+    self.modifier(ChartAngleSelectionMod(binding: value, enabled: enabled))
+  }
+
+  func conditionalChartXScale(domain: ClosedRange<Double>?) -> some View {
+    self.modifier(ChartXScaleMod(domain: domain))
+  }
+
+  func conditionalChartYScale(
+    domain: ClosedRange<Double>?,
+    logarithmic: Bool = false
+  ) -> some View {
+    self.modifier(ChartYScaleMod(domain: domain, logarithmic: logarithmic))
+  }
+
+  /// Trading-chart X mode — see `TightXMod` body for the three
+  /// coordinated tricks (explicit categorical domain, zero plot-
+  /// dimension padding, full-frame plot style) that make the
+  /// chart's content span edge to edge.
+  func conditionalTightX(
+    enabled: Bool,
+    xDomain: [String]
+  ) -> some View {
+    self.modifier(TightXMod(enabled: enabled, xDomain: xDomain))
+  }
+
+  /// Native horizontal scrolling via `chartScrollableAxes`. When
+  /// `visibleCount > 0`, also caps the visible category count via
+  /// `chartXVisibleDomain`.
+  func conditionalScrollable(enabled: Bool, visibleCount: Int) -> some View {
+    self.modifier(ScrollableMod(enabled: enabled, visibleCount: visibleCount))
+  }
+
+  /// Maps `category` strings → fill colors via
+  /// `chartForegroundStyleScale`.
+  func conditionalCategoryColors(
+    _ mapping: [String: UIColor]
+  ) -> some View {
+    self.modifier(CategoryColorsMod(mapping: mapping))
   }
 }
 
